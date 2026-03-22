@@ -1,0 +1,4 @@
+FinanceDataReader
+pandas
+numpy
+plotly
