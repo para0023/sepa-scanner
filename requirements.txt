@@ -1,7 +1,7 @@
 streamlit
 streamlit-echarts
 streamlit-aggrid==1.0.5
-FinanceDataReader
+finance-datareader
 pandas
 numpy
 plotly
