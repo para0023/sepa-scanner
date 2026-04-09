@@ -1,7 +1,10 @@
 """
 그룹 Watchlist 관리 및 RS 계산 모듈
+- 로컬 모드: JSON 파일 기반
+- 클라우드 모드: Supabase DB 기반
 """
 import json
+import os
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
@@ -15,6 +18,24 @@ from relative_strength import align_data, calculate_ibd_rs, get_stock_name
 
 WATCHLIST_FILE        = Path(__file__).parent / "watchlists.json"
 WATCHLIST_STOCKS_FILE = Path(__file__).parent / "watchlist_stocks.json"
+
+
+def _is_cloud() -> bool:
+    return os.environ.get("SEPA_LOCAL", "1") != "1"
+
+def _get_user_id() -> str:
+    try:
+        import streamlit as st
+        return st.session_state.get("user_id", "")
+    except Exception:
+        return ""
+
+def _get_supabase():
+    try:
+        import streamlit as st
+        return st.session_state.get("supabase_client")
+    except Exception:
+        return None
 
 _CACHE_DIR = Path(__file__).parent / "cache"
 _CACHE_DIR.mkdir(exist_ok=True)
@@ -32,6 +53,8 @@ RS_PERIOD   = 252        # 1년 기준
 
 def load_watchlists() -> dict:
     """{"KR": {"그룹명": ["ticker", ...]}, "US": {...}}"""
+    if _is_cloud():
+        return _load_watchlists_supabase()
     if not WATCHLIST_FILE.exists():
         return {"KR": {}, "US": {}}
     try:
@@ -44,8 +67,45 @@ def load_watchlists() -> dict:
 
 
 def save_watchlists(data: dict):
+    if _is_cloud():
+        _save_watchlists_supabase(data)
+        return
     json.dump(data, open(WATCHLIST_FILE, "w", encoding="utf-8"),
               ensure_ascii=False, indent=2)
+
+
+def _load_watchlists_supabase() -> dict:
+    sb, uid = _get_supabase(), _get_user_id()
+    if not sb or not uid:
+        return {"KR": {}, "US": {}}
+    try:
+        res = sb.table("watchlist_groups").select("*").eq("user_id", uid).execute()
+        result = {"KR": {}, "US": {}}
+        for row in (res.data or []):
+            market = row.get("market", "KR")
+            result.setdefault(market, {})
+            result[market][row["group_name"]] = row.get("tickers", [])
+        return result
+    except Exception:
+        return {"KR": {}, "US": {}}
+
+
+def _save_watchlists_supabase(data: dict):
+    sb, uid = _get_supabase(), _get_user_id()
+    if not sb or not uid:
+        return
+    try:
+        sb.table("watchlist_groups").delete().eq("user_id", uid).execute()
+        for market, groups in data.items():
+            for group_name, tickers in groups.items():
+                sb.table("watchlist_groups").insert({
+                    "user_id": uid,
+                    "market": market,
+                    "group_name": group_name,
+                    "tickers": tickers,
+                }).execute()
+    except Exception as e:
+        print(f"[Supabase watchlist 저장 실패] {e}")
 
 
 def add_group(market: str, group_name: str):
@@ -688,6 +748,8 @@ def save_group_rs_cache(market: str, groups: dict, rows: list):
 
 def load_watchlist_stocks() -> dict:
     """{\"KR\": [{ticker, name, reason, condition, added_date}, ...], \"US\": [...]}"""
+    if _is_cloud():
+        return _load_watchlist_stocks_supabase()
     if not WATCHLIST_STOCKS_FILE.exists():
         return {"KR": [], "US": []}
     try:
@@ -700,8 +762,54 @@ def load_watchlist_stocks() -> dict:
 
 
 def save_watchlist_stocks(data: dict):
+    if _is_cloud():
+        _save_watchlist_stocks_supabase(data)
+        return
     json.dump(data, open(WATCHLIST_STOCKS_FILE, "w", encoding="utf-8"),
               ensure_ascii=False, indent=2)
+
+
+def _load_watchlist_stocks_supabase() -> dict:
+    sb, uid = _get_supabase(), _get_user_id()
+    if not sb or not uid:
+        return {"KR": [], "US": []}
+    try:
+        res = sb.table("watchlist_stocks").select("*").eq("user_id", uid).execute()
+        result = {"KR": [], "US": []}
+        for row in (res.data or []):
+            market = row.get("market", "KR")
+            result.setdefault(market, [])
+            result[market].append({
+                "ticker": row["ticker"],
+                "name": row.get("name", ""),
+                "reason": row.get("wait_reason", ""),
+                "condition": row.get("entry_condition", ""),
+                "added_date": row.get("added_date", ""),
+            })
+        return result
+    except Exception:
+        return {"KR": [], "US": []}
+
+
+def _save_watchlist_stocks_supabase(data: dict):
+    sb, uid = _get_supabase(), _get_user_id()
+    if not sb or not uid:
+        return
+    try:
+        sb.table("watchlist_stocks").delete().eq("user_id", uid).execute()
+        for market, stocks in data.items():
+            for s in stocks:
+                sb.table("watchlist_stocks").upsert({
+                    "user_id": uid,
+                    "ticker": s["ticker"],
+                    "name": s.get("name", ""),
+                    "market": market,
+                    "wait_reason": s.get("reason", ""),
+                    "entry_condition": s.get("condition", ""),
+                    "added_date": s.get("added_date", ""),
+                }).execute()
+    except Exception as e:
+        print(f"[Supabase watchlist_stocks 저장 실패] {e}")
 
 
 def add_watchlist_stock(market: str, ticker: str, name: str = "",

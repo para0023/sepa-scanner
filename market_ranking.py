@@ -57,16 +57,35 @@ CACHE_DIR.mkdir(exist_ok=True)
 # 파일 캐시 (날짜 기반)
 # ─────────────────────────────────────────────
 
-def _cache_path(market: str, period: int) -> Path:
-    today = datetime.now().strftime("%Y%m%d")
-    return CACHE_DIR / f"ranking_{market}_{period}d_{today}.json"
+def _cache_path(market: str, period: int, date_str: str = None) -> Path:
+    if date_str is None:
+        date_str = datetime.now().strftime("%Y%m%d")
+    return CACHE_DIR / f"ranking_{market}_{period}d_{date_str}.json"
 
 
-def _load_cache(market: str, period: int) -> Optional[pd.DataFrame]:
-    """당일 캐시 파일이 있으면 DataFrame으로 반환, 없으면 None"""
-    path = _cache_path(market, period)
-    if not path.exists():
-        return None
+def _find_latest_cache_path(market: str, period: int) -> Optional[Path]:
+    """오늘~7일 전까지 가장 최근 캐시 파일 탐색"""
+    for i in range(8):
+        d = (datetime.now() - timedelta(days=i)).strftime("%Y%m%d")
+        path = CACHE_DIR / f"ranking_{market}_{period}d_{d}.json"
+        if path.exists():
+            return path
+    return None
+
+
+def _load_cache(market: str, period: int, today_only: bool = False) -> Optional[pd.DataFrame]:
+    """캐시 파일이 있으면 DataFrame으로 반환.
+    today_only=True: 오늘자 캐시만 확인 (precalc용)
+    today_only=False: 오늘 없으면 최근 7일 폴백 (앱 조회용)
+    """
+    if today_only:
+        path = _cache_path(market, period)
+        if not path.exists():
+            return None
+    else:
+        path = _find_latest_cache_path(market, period)
+        if path is None:
+            return None
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -98,14 +117,25 @@ def _save_cache(df: pd.DataFrame, market: str, period: int):
         print(f"[캐시 저장 실패] {e}")
 
 
-def _filter_cache_path(filter_type: str, market: str, period: int) -> Path:
-    today = datetime.now().strftime("%Y%m%d")
-    return CACHE_DIR / f"{filter_type}_{market}_{period}d_{today}.json"
+def _filter_cache_path(filter_type: str, market: str, period: int, date_str: str = None) -> Path:
+    if date_str is None:
+        date_str = datetime.now().strftime("%Y%m%d")
+    return CACHE_DIR / f"{filter_type}_{market}_{period}d_{date_str}.json"
+
+
+def _find_latest_filter_cache_path(filter_type: str, market: str, period: int) -> Optional[Path]:
+    """오늘~7일 전까지 가장 최근 필터 캐시 파일 탐색"""
+    for i in range(8):
+        d = (datetime.now() - timedelta(days=i)).strftime("%Y%m%d")
+        path = CACHE_DIR / f"{filter_type}_{market}_{period}d_{d}.json"
+        if path.exists():
+            return path
+    return None
 
 
 def _load_filter_cache(filter_type: str, market: str, period: int) -> Optional[pd.DataFrame]:
-    path = _filter_cache_path(filter_type, market, period)
-    if not path.exists():
+    path = _find_latest_filter_cache_path(filter_type, market, period)
+    if path is None:
         return None
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -146,8 +176,8 @@ def _save_filter_cache(df: pd.DataFrame, filter_type: str, market: str, period: 
 
 
 def get_filter_cache_info(filter_type: str, market: str, period: int) -> Optional[str]:
-    path = _filter_cache_path(filter_type, market, period)
-    if not path.exists():
+    path = _find_latest_filter_cache_path(filter_type, market, period)
+    if path is None:
         return None
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -160,8 +190,8 @@ def get_filter_cache_info(filter_type: str, market: str, period: int) -> Optiona
 
 def get_cache_info(market: str, period: int) -> Optional[str]:
     """캐시 파일의 저장 시각 문자열 반환 (없으면 None)"""
-    path = _cache_path(market, period)
-    if not path.exists():
+    path = _find_latest_cache_path(market, period)
+    if path is None:
         return None
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -734,20 +764,214 @@ def get_vcp_pattern_cache_info(market: str, period: int) -> Optional[str]:
     return get_filter_cache_info("vcp_pattern", market, period)
 
 
+# ─────────────────────────────────────────────
+# Short Scanner (Stage 4 + 인버스 ETF 매핑)
+# ─────────────────────────────────────────────
+
+# 원본 종목 → 인버스 ETF 매핑
+INVERSE_ETF_MAP = {
+    # ── 개별종목 인버스 ──
+    "TSLA": {"name": "Tesla", "inverse": [("TSLS", "TSLA Bear 1X")]},
+    "NVDA": {"name": "NVIDIA", "inverse": [("NVDS", "NVDA Bear 1.25X"), ("NVDQ", "NVDA Bear 2X")]},
+    "AAPL": {"name": "Apple", "inverse": [("AAPD", "AAPL Bear 1X")]},
+    "AMZN": {"name": "Amazon", "inverse": [("AMZD", "AMZN Bear 1X")]},
+    "MSFT": {"name": "Microsoft", "inverse": [("MSFD", "MSFT Bear 1X")]},
+    "META": {"name": "Meta", "inverse": [("METD", "META Bear 1X")]},
+    "GOOGL": {"name": "Alphabet", "inverse": [("GGLS", "GOOGL Bear 1X")]},
+    "AMD": {"name": "AMD", "inverse": [("AMDD", "AMD Bear 1X")]},
+    "COIN": {"name": "Coinbase", "inverse": [("CONL", "COIN Short 2X")]},
+    # ── 지수 인버스 ──
+    "SPY": {"name": "S&P500", "inverse": [("SH", "S&P500 Short 1X"), ("SPXS", "S&P500 Bear 3X")]},
+    "QQQ": {"name": "Nasdaq100", "inverse": [("PSQ", "QQQ Short 1X"), ("SQQQ", "QQQ Bear 3X")]},
+    "DIA": {"name": "Dow30", "inverse": [("DOG", "Dow30 Short 1X"), ("SDOW", "Dow30 Bear 3X")]},
+    "IWM": {"name": "Russell2000", "inverse": [("RWM", "Russell2000 Short 1X"), ("TZA", "Russell2000 Bear 3X")]},
+    # ── 섹터 인버스 ──
+    "SOXX": {"name": "반도체", "inverse": [("SOXS", "반도체 Bear 3X")]},
+    "XLK": {"name": "기술", "inverse": [("TECS", "기술 Bear 3X")]},
+    "XLF": {"name": "금융", "inverse": [("SEF", "금융 Short 1X"), ("FAZ", "금융 Bear 3X")]},
+    "XLE": {"name": "에너지", "inverse": [("ERY", "에너지 Bear 2X")]},
+    "XBI": {"name": "바이오", "inverse": [("LABD", "바이오 Bear 3X")]},
+    # ── 해외/채권 인버스 ──
+    "FXI": {"name": "중국", "inverse": [("YXI", "중국 Short 1X"), ("YANG", "중국 Bear 3X")]},
+    "TLT": {"name": "장기국채", "inverse": [("TBF", "장기국채 Short 1X"), ("TBT", "장기국채 Short 2X"), ("TMV", "장기국채 Bear 3X")]},
+}
+
+
+def _check_stage4_single(ticker: str, name: str, rs_score: float, rs_pct: float) -> Optional[dict]:
+    """
+    Stage 4 시작 감지:
+    - 돌파 임박: 200일선 위 5% 이내 + MA20 하락 중
+    - 돌파 초기: 200일선 하방 돌파 후 20거래일 이내
+    """
+    try:
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=400)
+        stock = fdr.DataReader(ticker, start_date, end_date)
+        if stock.empty or len(stock) < 200:
+            return None
+        stock = stock[~stock.index.duplicated(keep='last')]
+
+        close = stock["Close"]
+        ma20 = close.rolling(20, min_periods=20).mean()
+        ma60 = close.rolling(60, min_periods=60).mean()
+        ma200 = close.rolling(200, min_periods=200).mean()
+
+        c = close.iloc[-1]
+        m20 = ma20.iloc[-1]
+        m60 = ma60.iloc[-1]
+        m200 = ma200.iloc[-1]
+
+        if pd.isna(m20) or pd.isna(m60) or pd.isna(m200):
+            return None
+
+        # MA20 기울기 음수 (하락 전환 중) — 공통 조건
+        m20_prev = ma20.iloc[-11] if len(ma20) > 11 else ma20.iloc[0]
+        if pd.isna(m20_prev) or m20 >= m20_prev:
+            return None
+
+        ma200_gap = round((c / m200 - 1) * 100, 2)
+
+        if c < m200:
+            # ── 돌파 초기: 200일선 아래 ──
+            above_ma200 = (close > ma200).dropna()
+            if len(above_ma200) < 2:
+                return None
+
+            cross_idx = None
+            for i in range(len(above_ma200) - 1, 0, -1):
+                if not above_ma200.iloc[i] and above_ma200.iloc[i - 1]:
+                    cross_idx = i
+                    break
+
+            if cross_idx is None:
+                return None
+
+            days_since_cross = len(above_ma200) - 1 - cross_idx
+            if days_since_cross > 20:
+                return None
+
+            status = "돌파 초기"
+            days_label = days_since_cross
+
+        elif ma200_gap <= 5.0:
+            # ── 돌파 임박: 200일선 위 5% 이내 ──
+            status = "돌파 임박"
+            days_label = None
+        else:
+            return None
+
+        # 거래량 비율 (5일/20일)
+        vol = stock["Volume"]
+        vol_5 = vol.tail(5).mean()
+        vol_20 = vol.tail(20).mean()
+        vol_ratio = round(vol_5 / vol_20 * 100, 1) if vol_20 > 0 else 0
+
+        # 52주 고점 대비
+        high_52w = close.tail(252).max()
+        from_high = round((c / high_52w - 1) * 100, 1)
+
+        # 인버스 ETF 정보
+        inv_info = INVERSE_ETF_MAP.get(ticker, {})
+        inv_tickers = ", ".join([t for t, _ in inv_info.get("inverse", [])])
+
+        return {
+            "종목코드": ticker,
+            "종목명": name,
+            "상태": status,
+            "현재가": round(c, 2),
+            "200일선대비(%)": ma200_gap,
+            "고점대비(%)": from_high,
+            "돌파경과(일)": days_label,
+            "거래량비율(%)": vol_ratio,
+            "인버스ETF": inv_tickers,
+        }
+    except Exception:
+        return None
+
+
+def scan_short_candidates(
+    period: int = 60,
+    use_cache: bool = True,
+    progress_cb=None,
+) -> pd.DataFrame:
+    """
+    Short Scanner: 인버스 ETF가 있는 종목 중 Stage 4 진입 종목 탐색.
+    미국 대형주 + 지수 대상.
+    """
+    cache_type = "short"
+    market = "SHORT"
+    if use_cache:
+        cached = _load_filter_cache(cache_type, market, period)
+        if cached is not None:
+            return cached
+
+    # 인버스 ETF 매핑된 종목만 대상
+    targets = list(INVERSE_ETF_MAP.keys())
+    total = len(targets)
+    results = []
+    done = 0
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        future_map = {
+            executor.submit(
+                _check_stage4_single,
+                ticker,
+                INVERSE_ETF_MAP[ticker]["name"],
+                0.0,  # RS Score는 별도 계산 안 함
+                0.0,
+            ): ticker
+            for ticker in targets
+        }
+        for future in as_completed(future_map):
+            done += 1
+            if progress_cb:
+                progress_cb(done, total)
+            try:
+                result = future.result(timeout=REQUEST_TIMEOUT)
+                if result:
+                    results.append(result)
+            except Exception:
+                pass
+
+    if not results:
+        empty_df = pd.DataFrame()
+        _save_filter_cache(empty_df, cache_type, market, period)
+        return empty_df
+
+    df_result = (
+        pd.DataFrame(results)
+        .sort_values("200일선대비(%)", ascending=True)
+        .reset_index(drop=True)
+    )
+    df_result.index += 1
+    df_result.index.name = "순위"
+
+    _save_filter_cache(df_result, cache_type, market, period)
+    print(f"[Short Scanner] 완료: {len(df_result)}개 종목 (대상 {total}종목 중)")
+    return df_result
+
+
+def get_short_cache_info(period: int = 60) -> Optional[str]:
+    """Short Scanner 캐시 저장 시각 반환"""
+    return get_filter_cache_info("short", "SHORT", period)
+
+
 def calc_market_ranking(
     market: str = "KOSPI",
     period: int = 20,
     top_n: int = 100,
     min_price: float = 0,
     progress_cb=None,
+    today_only: bool = False,
 ) -> pd.DataFrame:
     """
     시장 전체 RS 랭킹 반환.
     - 당일 캐시 있음 → 즉시 반환
     - 당일 캐시 없음 → 전체 계산 후 저장 → 반환
+    today_only=True: 오늘 캐시만 확인 (precalc용 — 폴백 안 함)
     """
     # ① 캐시 확인
-    cached = _load_cache(market, period)
+    cached = _load_cache(market, period, today_only=today_only)
     if cached is not None:
         return cached.head(top_n)
 

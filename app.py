@@ -28,9 +28,9 @@ from relative_strength import (
     build_chart_echarts,
     calc_entry_signal,
 )
-from market_ranking import calc_market_ranking, get_cache_info, _cache_path, refresh_52w_high, apply_vcp_filter, apply_stage2_filter, get_filter_cache_info, scan_vcp_patterns, get_vcp_pattern_cache_info
+from market_ranking import calc_market_ranking, get_cache_info, _cache_path, refresh_52w_high, apply_vcp_filter, apply_stage2_filter, get_filter_cache_info, scan_vcp_patterns, get_vcp_pattern_cache_info, scan_short_candidates, get_short_cache_info, INVERSE_ETF_MAP
 from backtest import run_intraday_reversal_backtest, get_backtest_cache_info, run_signal_backtest, get_signal_cache_info
-from portfolio import add_buy, add_sell, get_open_positions, get_trade_log, calculate_performance, update_stop_loss, get_stop_loss_history, get_realized_pnl, get_position_pnl, get_total_capital, set_initial_capital, add_capital_flow, get_capital_flows, delete_capital_flow, delete_trade, update_trade, get_equity_curve, get_monthly_performance, get_trades_by_ticker, set_portfolio_file
+from portfolio import add_buy, add_sell, get_open_positions, get_trade_log, calculate_performance, update_stop_loss, get_stop_loss_history, get_realized_pnl, get_position_pnl, get_total_capital, set_initial_capital, add_capital_flow, get_capital_flows, delete_capital_flow, delete_trade, update_trade, get_equity_curve, get_monthly_performance, get_trades_by_ticker, set_portfolio_file, update_take_profit, get_monthly_review
 from watchlist import (load_watchlists, save_watchlists, add_group, delete_group,
                        add_ticker, remove_ticker, calc_group_rs,
                        calc_group_index, build_group_chart,
@@ -38,16 +38,54 @@ from watchlist import (load_watchlists, save_watchlists, add_group, delete_group
                        remove_watchlist_stock, update_watchlist_stock,
                        load_group_rs_cache, save_group_rs_cache)
 import FinanceDataReader as fdr
+import altair as alt
 
 @st.cache_data(ttl=86400)
 def load_krx_listing():
-    """KRX 전체 종목 목록 (하루 캐시)"""
+    """KRX 전체 종목 + ETF 목록 (하루 캐시)"""
     try:
         df = fdr.StockListing("KRX")[["Code", "Name", "Market"]].dropna()
         df = df[df["Code"].str.len() == 6].reset_index(drop=True)
+        try:
+            etf = fdr.StockListing("ETF/KR")[["Symbol", "Name"]].dropna()
+            etf.columns = ["Code", "Name"]
+            etf["Market"] = "ETF"
+            df = pd.concat([df, etf], ignore_index=True).drop_duplicates(subset="Code")
+        except Exception:
+            pass
         return df
     except Exception:
         return pd.DataFrame(columns=["Code", "Name", "Market"])
+
+
+@st.cache_data(ttl=86400)
+def load_us_listing():
+    """미국(NASDAQ+NYSE+ETF) 전체 종목 목록 (하루 캐시)"""
+    try:
+        nasdaq = fdr.StockListing("NASDAQ")[["Symbol", "Name"]].dropna()
+        nyse = fdr.StockListing("NYSE")[["Symbol", "Name"]].dropna()
+        try:
+            etf = fdr.StockListing("ETF/US")[["Symbol", "Name"]].dropna()
+        except Exception:
+            etf = pd.DataFrame(columns=["Symbol", "Name"])
+        df = pd.concat([nasdaq, nyse, etf], ignore_index=True).drop_duplicates(subset="Symbol")
+        df.columns = ["Code", "Name"]
+        return df
+    except Exception:
+        return pd.DataFrame(columns=["Code", "Name"])
+
+
+@st.cache_data(ttl=86400)
+def _build_ticker_options():
+    """사이드바 종목 검색용 옵션 리스트 (한국+미국)"""
+    options = [""]
+    krx = load_krx_listing()
+    for _, row in krx.iterrows():
+        options.append(f"{row['Name']}  ({row['Code']})")
+    us = load_us_listing()
+    for _, row in us.iterrows():
+        options.append(f"{row['Name']}  ({row['Code']})")
+    return options
 
 def _aggrid(df, key, height=400, click_nav=False, fit_columns=False, color_map=None, price_cols=None, pct_cols=None, col_widths=None, hide_cols=None, price_decimals=0):
     """
@@ -174,14 +212,24 @@ def resolve_korean_name(text: str) -> str:
     return text
 
 # ══════════════════════════════════════════════════════════
-# 페이지 설정
+# 페이지 설정 + 인증
 # ══════════════════════════════════════════════════════════
-st.set_page_config(
-    page_title="SEPA - Specific Entry Point Analysis",
-    page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+from auth import login_page, logout, get_user_id, is_local_mode
+
+_CLOUD_MODE = not is_local_mode()
+
+if _CLOUD_MODE and not st.session_state.get("authenticated"):
+    # 클라우드 배포: 로그인 화면 (centered 레이아웃)
+    if not login_page():
+        st.stop()
+else:
+    # 로컬 모드 또는 이미 인증됨: 메인 앱 레이아웃
+    st.set_page_config(
+        page_title="SEPA - Specific Entry Point Analysis",
+        page_icon="📈",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
 
 # ══════════════════════════════════════════════════════════
 # 사이드바
@@ -191,8 +239,8 @@ with st.sidebar:
 
     ticker_input = st.text_input(
         "종목 코드",
-        placeholder="예: 005930  /  AAPL",
-        help="한국 주식은 6자리 숫자 (예: 005930), 미국 주식은 영문 티커 (예: AAPL)",
+        placeholder="예: 005930  /  AAPL  /  IAU",
+        help="한국 6자리 숫자, 미국 영문 티커, ETF 모두 가능",
         value=st.session_state.get("sidebar_ticker", ""),
     ).strip()
 
@@ -221,8 +269,29 @@ with st.sidebar:
     run = st.button("📊 차트 보기", type="primary", use_container_width=True)
 
     st.divider()
+    if st.button("🏠 Main", use_container_width=True):
+        st.session_state.view = "dashboard"
+        st.session_state.sidebar_ticker = ""
+        st.rerun()
+
+    if st.button("📊 RS Scanner", use_container_width=True):
+        st.session_state.view = "rs_scanner"
+        st.rerun()
+
+    if st.button("🔍 Pattern Scanner", use_container_width=True):
+        st.session_state.view = "pattern_scanner"
+        st.rerun()
+
+    if st.button("🔻 Short Scanner", use_container_width=True):
+        st.session_state.view = "short_scanner"
+        st.rerun()
+
     if st.button("💼 포트폴리오", use_container_width=True):
         st.session_state.view = "portfolio"
+        st.rerun()
+
+    if st.button("🌍 시장 지표", use_container_width=True):
+        st.session_state.view = "market_indicators"
         st.rerun()
 
     if st.button("📂 그룹 분석", use_container_width=True):
@@ -233,10 +302,13 @@ with st.sidebar:
         st.session_state.view = "watchlist_stocks"
         st.rerun()
 
-    if st.button("🏠 홈", use_container_width=True):
-        st.session_state.view = "home"
-        st.session_state.sidebar_ticker = ""
-        st.rerun()
+    # 로그아웃 (클라우드 모드)
+    if _CLOUD_MODE and st.session_state.get("authenticated"):
+        st.divider()
+        _user_email = st.session_state.get("user_email", "")
+        st.caption(f"👤 {_user_email}")
+        if st.button("🚪 로그아웃", use_container_width=True):
+            logout()
 
     # 뒤로 가기 (차트 보는 중일 때)
     if st.session_state.get("view") == "chart":
@@ -244,6 +316,7 @@ with st.sidebar:
         _back_labels = {
             "rs_scanner": "← RS Scanner로",
             "pattern_scanner": "← Pattern Scanner로",
+            "short_scanner": "← Short Scanner로",
             "portfolio": "← 포트폴리오로",
             "watchlist":        "← 그룹 분석으로",
             "group_chart":      "← 그룹 분석으로",
@@ -302,7 +375,7 @@ def _jump_to_tab(tab_index: int):
 # 세션 초기화
 # ══════════════════════════════════════════════════════════
 if "view" not in st.session_state:
-    st.session_state.view = "home"
+    st.session_state.view = "dashboard"
 if "chart_ticker" not in st.session_state:
     st.session_state.chart_ticker = ""
 if "chart_name" not in st.session_state:
@@ -409,6 +482,23 @@ def show_chart(ticker_raw: str, period: int, custom_benchmark=None):
     set_portfolio_file("portfolio.json" if market == "KR" else "portfolio_us.json")
     trades = get_trades_by_ticker(ticker)
 
+    # 현재 손절가/1차익절가 추출 (보유 중인 포지션)
+    _stop_loss = None
+    _take_profit = None
+    if trades:
+        _open_pos = get_open_positions()
+        if _open_pos is not None and not _open_pos.empty:
+            _pos_row = _open_pos[_open_pos["종목코드"] == ticker] if "종목코드" in _open_pos.columns else None
+            if _pos_row is not None and not _pos_row.empty:
+                if "손절가" in _pos_row.columns:
+                    _sl_val = _pos_row.iloc[0]["손절가"]
+                    if _sl_val and float(_sl_val) > 0:
+                        _stop_loss = float(_sl_val)
+                if "1차익절가" in _pos_row.columns:
+                    _tp_val = _pos_row.iloc[0]["1차익절가"]
+                    if _tp_val and float(_tp_val) > 0:
+                        _take_profit = float(_tp_val)
+
     # 구버전(Plotly)은 코드 유지하되 UI에서 숨김
     # chart_ver = st.radio(
     #     "차트 버전", ["신버전 (ECharts)", "구버전 (Plotly)"],
@@ -420,6 +510,8 @@ def show_chart(ticker_raw: str, period: int, custom_benchmark=None):
         stock_full, index_full, mas_full,
         rs_line_display, rs_score, stock_ret, index_ret,
         trades=trades or None,
+        stop_loss_price=_stop_loss,
+        take_profit_price=_take_profit,
     )
 
     # ── 재무 데이터 (차트 하단) ───────────────────────────
@@ -922,61 +1014,809 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
 
 
 # ══════════════════════════════════════════════════════════
-# 홈 화면
+# 대시보드 (메인 화면)
 # ══════════════════════════════════════════════════════════
-def show_home():
-    st.title("📈 SEPA")
-    st.markdown("## Specific Entry Point Analysis")
-    st.caption("마크 미너비니 · 윌리엄 오닐 방식의 매수 타점 분석 시스템")
+
+@st.cache_data(ttl=300)   # 5분 캐시
+def _fetch_market_snapshot():
+    """주요 시장 지표 스냅샷 (대시보드용) — 병렬 조회"""
+    from datetime import datetime, timedelta
+    from concurrent.futures import ThreadPoolExecutor
+    end = datetime.now()
+    start = end - timedelta(days=7)
+    s, e = start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+
+    items = {
+        "코스피":   "KS11",
+        "코스닥":   "KQ11",
+        "S&P500":  "^GSPC",
+        "나스닥":   "^IXIC",
+        "USD/KRW": "USD/KRW",
+        "달러인덱스": "DX-Y.NYB",
+        "미국10년물": "^TNX",
+        "WTI":     "CL=F",
+        "금":      "GC=F",
+    }
+
+    def _fetch_one(item):
+        label, code = item
+        try:
+            df = fdr.DataReader(code, s, e)
+            if df is not None and not df.empty:
+                df = df.dropna(subset=["Close"])
+            if df is not None and len(df) >= 2:
+                cur  = float(df.iloc[-1]["Close"])
+                prev = float(df.iloc[-2]["Close"])
+                chg  = cur - prev
+                chg_pct = (chg / prev * 100) if prev else 0
+                return label, {"price": cur, "change": chg, "change_pct": chg_pct}
+            elif df is not None and len(df) == 1:
+                cur = float(df.iloc[-1]["Close"])
+                return label, {"price": cur, "change": 0, "change_pct": 0}
+        except Exception:
+            pass
+        return label, None
+
+    result = {}
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        for label, data in pool.map(_fetch_one, items.items()):
+            if data:
+                result[label] = data
+    result["_fetched_at"] = end.strftime("%Y-%m-%d %H:%M")
+    return result
+
+
+def _metric_delta(val, pct, is_currency=False, decimal=2):
+    """metric 표시용 delta 문자열"""
+    sign = "+" if val >= 0 else ""
+    if is_currency:
+        return f"{sign}{val:,.{decimal}f} ({sign}{pct:.2f}%)"
+    return f"{sign}{val:,.{decimal}f} ({sign}{pct:.2f}%)"
+
+
+def show_dashboard():
+    st.title("📈 SEPA Dashboard")
+    st.caption("Specific Entry Point Analysis  ·  Market Index & 포트폴리오 요약")
+
+    # ── 1) 시장 지수 요약 ──────────────────────────────────
+    snap = _fetch_market_snapshot()
+    _fetched = snap.get("_fetched_at", "")
+    st.markdown(f"### Market Index &nbsp; <small style='color:#888; font-weight:normal;'>{_fetched}</small>", unsafe_allow_html=True)
+
+    # 주요 지수 4개
+    idx_cols = st.columns(4)
+    idx_items = [
+        ("코스피", 0, ",.2f"),
+        ("코스닥", 0, ",.2f"),
+        ("S&P500", 0, ",.2f"),
+        ("나스닥", 0, ",.2f"),
+    ]
+    for col, (label, _, fmt) in zip(idx_cols, idx_items):
+        d = snap.get(label)
+        if d:
+            delta_str = f"{d['change']:+,.2f} ({d['change_pct']:+.2f}%)"
+            col.metric(label, f"{d['price']:,.2f}", delta_str,
+                       delta_color="normal")
+        else:
+            col.metric(label, "—", "데이터 없음")
+
+    # 매크로 지표 5개
+    macro_cols = st.columns(5)
+    macro_items = [
+        ("USD/KRW",   "원/달러",    2),
+        ("달러인덱스",  "DXY",       2),
+        ("미국10년물",  "US 10Y",    4),
+        ("WTI",       "WTI $/bbl",  2),
+        ("금",        "Gold $/oz",  2),
+    ]
+    for col, (key, label, dec) in zip(macro_cols, macro_items):
+        d = snap.get(key)
+        if d:
+            delta_str = f"{d['change']:+,.{dec}f} ({d['change_pct']:+.2f}%)"
+            col.metric(label, f"{d['price']:,.{dec}f}", delta_str,
+                       delta_color="off")
+        else:
+            col.metric(label, "—", "")
+
+    if st.button("🌍 시장 지표 상세 보기 →", key="dash_to_mkt_ind"):
+        st.session_state.view = "market_indicators"
+        st.rerun()
+
     st.divider()
 
-    col1, col2 = st.columns(2)
+    # ── 2) 포트폴리오 요약 ──────────────────────────────────
+    dash_left, dash_right = st.columns([3, 2])
 
-    with col1:
-        st.markdown("### 📊 RS Scanner")
-        st.markdown("**Trend-based Entry (PB / HB)**")
-        st.markdown(
-            "RS 강세 상위 종목 목록을 기반으로 "
-            "눌림목(PB) 및 높은 베이스(HB) 타점을 탐색합니다."
-        )
-        if st.button("RS Scanner 시작 →", type="primary", use_container_width=True, key="home_rs_btn"):
+    with dash_left:
+        st.subheader("보유 포트폴리오")
+
+        # 한국 포트폴리오
+        set_portfolio_file("portfolio.json")
+        kr_open = get_open_positions()
+        # 미국 포트폴리오
+        set_portfolio_file("portfolio_us.json")
+        us_open = get_open_positions()
+        # 원복
+        set_portfolio_file("portfolio.json")
+
+        if kr_open.empty and us_open.empty:
+            st.info("보유 중인 종목이 없습니다.")
+        else:
+            # 한국
+            kr_total = 0
+            if not kr_open.empty:
+                st.markdown("**한국**")
+                _kr_summary = kr_open[["종목명", "평균매수가", "수량", "손절가", "경과일"]].copy()
+                _kr_summary["매수금액"] = _kr_summary["평균매수가"] * _kr_summary["수량"]
+                kr_total = _kr_summary["매수금액"].sum()
+                # 합계 행
+                _kr_total_row = pd.DataFrame([{
+                    "종목명": "합계",
+                    "평균매수가": None, "수량": None, "손절가": None, "경과일": None,
+                    "매수금액": kr_total,
+                }])
+                _kr_summary = pd.concat([_kr_summary, _kr_total_row], ignore_index=True)
+                st.dataframe(
+                    _kr_summary.style.format({
+                        "평균매수가": lambda v: f"{v:,.0f}" if pd.notna(v) else "",
+                        "수량": lambda v: f"{v:,.0f}" if pd.notna(v) else "",
+                        "손절가": lambda v: f"{v:,.0f}" if pd.notna(v) else "",
+                        "경과일": lambda v: f"{v:.0f}" if pd.notna(v) else "",
+                        "매수금액": "{:,.0f}",
+                    }),
+                    use_container_width=True, hide_index=True,
+                )
+
+            # 미국
+            us_total = 0
+            if not us_open.empty:
+                st.markdown("**미국**")
+                _us_summary = us_open[["종목명", "평균매수가", "수량", "손절가", "경과일"]].copy()
+                _us_summary["매수금액"] = _us_summary["평균매수가"] * _us_summary["수량"]
+                us_total = _us_summary["매수금액"].sum()
+                # 합계 행
+                _us_total_row = pd.DataFrame([{
+                    "종목명": "합계",
+                    "평균매수가": None, "수량": None, "손절가": None, "경과일": None,
+                    "매수금액": us_total,
+                }])
+                _us_summary = pd.concat([_us_summary, _us_total_row], ignore_index=True)
+                st.dataframe(
+                    _us_summary.style.format({
+                        "평균매수가": lambda v: f"{v:,.2f}" if pd.notna(v) else "",
+                        "수량": lambda v: f"{v:,.0f}" if pd.notna(v) else "",
+                        "손절가": lambda v: f"{v:,.2f}" if pd.notna(v) else "",
+                        "경과일": lambda v: f"{v:.0f}" if pd.notna(v) else "",
+                        "매수금액": lambda v: f"${v:,.2f}" if pd.notna(v) else "",
+                    }),
+                    use_container_width=True, hide_index=True,
+                )
+
+    with dash_right:
+        # ── 3) 손절선 근접 알림 ──────────────────────────────
+        st.subheader("손절선 근접 종목")
+
+        # 현재가 일괄 병렬 조회
+        _price_targets = []
+        for df_pos, market_label, is_us in [(kr_open, "KR", False), (us_open, "US", True)]:
+            if df_pos.empty:
+                continue
+            for _, row in df_pos.iterrows():
+                if row["손절가"] > 0:
+                    _price_targets.append((row["종목코드"], row["종목명"], row["손절가"], market_label))
+
+        _prices = {}
+        if _price_targets:
+            from concurrent.futures import ThreadPoolExecutor
+            _tickers = list({t[0] for t in _price_targets})
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                _results = list(pool.map(_fetch_current_price, _tickers))
+            _prices = dict(zip(_tickers, _results))
+
+        alerts = []
+        for ticker, name, stop, mkt in _price_targets:
+            cur = _prices.get(ticker, 0)
+            if cur > 0:
+                dist_pct = (cur - stop) / cur * 100
+            else:
+                dist_pct = None
+            alerts.append({
+                "시장": mkt,
+                "종목명": name,
+                "현재가": cur if cur > 0 else None,
+                "손절가": stop,
+                "손절거리(%)": round(dist_pct, 2) if dist_pct is not None else None,
+            })
+
+        if alerts:
+            df_alerts = pd.DataFrame(alerts).sort_values("손절거리(%)")
+            def _alert_color(val):
+                if pd.isna(val):
+                    return ""
+                if val <= 3:
+                    return "background-color: rgba(255,0,0,0.3)"
+                elif val <= 5:
+                    return "background-color: rgba(255,165,0,0.2)"
+                return ""
+            st.dataframe(
+                df_alerts.style.map(_alert_color, subset=["손절거리(%)"]).format({
+                    "현재가": lambda v: f"{v:,.2f}" if pd.notna(v) else "—",
+                    "손절가": "{:,.2f}",
+                    "손절거리(%)": lambda v: f"{v:.2f}%" if pd.notna(v) else "—",
+                }),
+                use_container_width=True, hide_index=True,
+            )
+        else:
+            st.info("손절가가 설정된 보유 종목이 없습니다.")
+
+        # 총자산 (원금 + 누적실현손익)
+        st.divider()
+        set_portfolio_file("portfolio.json")
+        kr_capital = get_total_capital()
+        kr_pnl_df = get_realized_pnl()
+        _kr_pnl_col = [c for c in kr_pnl_df.columns if "실현손익" in c]
+        kr_cum_pnl = kr_pnl_df[_kr_pnl_col[0]].sum() if _kr_pnl_col and not kr_pnl_df.empty else 0
+
+        set_portfolio_file("portfolio_us.json")
+        us_capital = get_total_capital()
+        us_pnl_df = get_realized_pnl()
+        _us_pnl_col = [c for c in us_pnl_df.columns if "실현손익" in c]
+        us_cum_pnl = us_pnl_df[_us_pnl_col[0]].sum() if _us_pnl_col and not us_pnl_df.empty else 0
+        set_portfolio_file("portfolio.json")
+
+        if kr_capital > 0:
+            kr_total_asset = kr_capital + kr_cum_pnl
+            st.metric("한국 총자산", f"{kr_total_asset:,.0f} 원",
+                      f"실현손익 {kr_cum_pnl:+,.0f} 원", delta_color="normal")
+        if us_capital > 0:
+            us_total_asset = us_capital + us_cum_pnl
+            st.metric("미국 총자산", f"${us_total_asset:,.2f}",
+                      f"실현손익 ${us_cum_pnl:+,.2f}", delta_color="normal")
+
+    st.divider()
+
+    # ── 4) 빠른 이동 ──────────────────────────────────
+    st.subheader("빠른 이동")
+    qc1, qc2, qc3, qc4 = st.columns(4)
+
+    with qc1:
+        if st.button("📊 RS Scanner →", type="primary", use_container_width=True, key="dash_rs_btn"):
             st.session_state.view = "rs_scanner"
             st.rerun()
-
-    with col2:
-        st.markdown("### 🔍 Pattern Scanner")
-        st.markdown("**Breakout Entry (VCP / BO)**")
-        st.markdown(
-            "VCP 패턴 완성 종목에서 수축 강도·거래량 수축 기반으로 "
-            "피벗 돌파(BO) 타점을 탐색합니다."
-        )
-        if st.button("Pattern Scanner 시작 →", type="primary", use_container_width=True, key="home_pattern_btn"):
+    with qc2:
+        if st.button("🔍 Pattern Scanner →", type="primary", use_container_width=True, key="dash_pattern_btn"):
             st.session_state.view = "pattern_scanner"
             st.rerun()
-
-    col3, col4 = st.columns(2)
-
-    with col3:
-        st.markdown("### 🧪 백테스트")
-        st.markdown("**Strategy Backtest**")
-        st.markdown(
-            "SEPA 전략, 일중반전, 커스텀 조건 기반으로 "
-            "과거 데이터에서 전략 성과를 검증합니다."
-        )
-        if st.button("백테스트 시작 →", type="primary", use_container_width=True, key="home_backtest_btn"):
+    with qc3:
+        if st.button("💼 포트폴리오 →", type="primary", use_container_width=True, key="dash_portfolio_btn"):
+            st.session_state.view = "portfolio"
+            st.rerun()
+    with qc4:
+        if st.button("🧪 백테스트 →", type="primary", use_container_width=True, key="dash_backtest_btn"):
             st.session_state.view = "backtest"
             st.rerun()
 
-    with col4:
-        st.markdown("### 💼 포트폴리오")
-        st.markdown("**Portfolio Management**")
-        st.markdown(
-            "매수/매도 기록, 보유 현황, 손익 분석 및 "
-            "거래 성과를 관리합니다."
-        )
-        if st.button("포트폴리오 보기 →", type="primary", use_container_width=True, key="home_portfolio_btn"):
-            st.session_state.view = "portfolio"
-            st.rerun()
+
+# ══════════════════════════════════════════════════════════
+# 시장 지표
+# ══════════════════════════════════════════════════════════
+
+def _fetch_fred_csv(series_id: str, start: str, end: str) -> pd.DataFrame:
+    """FRED에서 CSV 직접 다운로드 (API 키 불필요)"""
+    try:
+        import requests
+        from io import StringIO
+        url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd={start}&coed={end}"
+        r = requests.get(url, timeout=15)
+        if r.status_code != 200:
+            return pd.DataFrame()
+        df = pd.read_csv(StringIO(r.text), parse_dates=["observation_date"], index_col="observation_date")
+        df.columns = ["Close"]
+        df = df.dropna(subset=["Close"])
+        df.index.name = "Date"
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
+def _fetch_ecos_key100(stat_id: str) -> pd.DataFrame:
+    """ECOS 100대 지표 내부 API로 시계열 조회 (M1 등 공식 API에 없는 지표용)"""
+    try:
+        import requests
+        url = "https://ecos.bok.or.kr/serviceEndpoint/httpService/request.json"
+        payload = {
+            "header": {
+                "guidSeq": 1, "trxCd": "OSUSC04R01", "scrId": "IECOSPCM04",
+                "sysCd": "03", "fstChnCd": "WEB", "langDvsnCd": "KO",
+                "envDvsnCd": "D", "sndRspnDvsnCd": "S",
+                "sndDtm": datetime.now().strftime("%Y%m%d"),
+                "ipAddr": "", "usrId": "IECOSPC", "pageNum": 1, "pageCnt": 1000,
+            },
+            "data": {"key100statId": stat_id},
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "Origin": "https://ecos.bok.or.kr",
+            "Referer": "https://ecos.bok.or.kr/",
+        }
+        r = requests.post(url, json=payload, headers=headers, timeout=15)
+        rows = r.json()["data"]["dataDtlList"]
+        records = []
+        for row in rows:
+            t = row["key100statDataTime"]
+            v = row["key100statDataVal"]
+            if not v:
+                continue
+            dt = pd.to_datetime(t + "01", format="%Y%m%d")
+            records.append({"Date": dt, "Close": float(v)})
+        if not records:
+            return pd.DataFrame()
+        return pd.DataFrame(records).set_index("Date").sort_index()
+    except Exception:
+        return pd.DataFrame()
+
+
+def _fetch_ecos(stat_code: str, item_code: str, cycle: str, start: str, end: str) -> pd.DataFrame:
+    """ECOS API로 시계열 데이터 조회. .env에서 API키 로드."""
+    import os
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent / ".env")
+    api_key = os.getenv("ECOS_API_KEY", "")
+    if not api_key:
+        return pd.DataFrame()
+    try:
+        import requests
+        url = f"https://ecos.bok.or.kr/api/StatisticSearch/{api_key}/json/kr/1/1000/{stat_code}/{cycle}/{start}/{end}/{item_code}"
+        r = requests.get(url, timeout=15)
+        data = r.json()
+        if "StatisticSearch" not in data:
+            return pd.DataFrame()
+        rows = data["StatisticSearch"]["row"]
+        records = []
+        for row in rows:
+            t = row["TIME"]
+            v = row["DATA_VALUE"]
+            if not v or v == "-":
+                continue
+            if cycle == "D":
+                dt = pd.to_datetime(t, format="%Y%m%d")
+            elif cycle == "M":
+                dt = pd.to_datetime(t + "01", format="%Y%m%d")
+            else:
+                dt = pd.to_datetime(t, format="%Y")
+            records.append({"Date": dt, "Close": float(v)})
+        if not records:
+            return pd.DataFrame()
+        df = pd.DataFrame(records).set_index("Date").sort_index()
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=300)
+def _fetch_all_indicators(days: int = 90):
+    """모든 시장 지표를 한 번에 가져와 캐싱 (개별 호출 대비 속도 대폭 개선)"""
+    from datetime import datetime, timedelta
+    from concurrent.futures import ThreadPoolExecutor
+    end = datetime.now()
+    start = end - timedelta(days=days)
+    s, e = start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+
+    codes = {
+        "USD/KRW": "USD/KRW", "DXY": "DX-Y.NYB",
+        "US10Y": "^TNX", "US2Y": "2YY=F", "VIX": "^VIX",
+        "WTI": "CL=F", "Gold": "GC=F", "Silver": "SI=F", "Copper": "HG=F", "NatGas": "NG=F",
+        "코스피": "KS11", "코스닥": "KQ11",
+        "S&P500": "^GSPC", "나스닥": "^IXIC",
+    }
+
+    def _fetch_one(item):
+        label, code = item
+        try:
+            df = fdr.DataReader(code, s, e)
+            if df is not None and len(df) > 0:
+                return label, df[["Close"]].copy()
+        except Exception:
+            pass
+        return label, pd.DataFrame()
+
+    result = {}
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        for label, df in pool.map(_fetch_one, codes.items()):
+            result[label] = df
+
+    # ECOS API: 한국 거시지표 (병렬)
+    ecos_start_d = start.strftime("%Y%m%d")
+    ecos_end_d = end.strftime("%Y%m%d")
+    ecos_start_m = start.strftime("%Y%m")
+    ecos_end_m = end.strftime("%Y%m")
+
+    ecos_items = {
+        "KR10Y": ("817Y002", "010210000", "D", ecos_start_d, ecos_end_d),    # 국고채 10년물
+        "KR2Y": ("817Y002", "010195000", "D", ecos_start_d, ecos_end_d),     # 국고채 2년물
+        "외국인(유가)": ("802Y001", "0030000", "D", ecos_start_d, ecos_end_d), # 외국인 순매수 유가증권
+        "외국인(코스닥)": ("802Y001", "0113000", "D", ecos_start_d, ecos_end_d), # 외국인 순매수 코스닥
+        "CPI": ("901Y009", "0", "M", (start - timedelta(days=400)).strftime("%Y%m"), ecos_end_m),  # 소비자물가지수 (YoY용 13개월+)
+    }
+
+    def _fetch_ecos_one(item):
+        label, args = item
+        return label, _fetch_ecos(*args)
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        for label, df in pool.map(_fetch_ecos_one, ecos_items.items()):
+            result[label] = df
+
+    # FRED: 미국 CPI (YoY 계산용으로 13개월+ 확보)
+    fred_start = (start - timedelta(days=400)).strftime("%Y-%m-%d")
+    fred_end = end.strftime("%Y-%m-%d")
+    result["US_CPI"] = _fetch_fred_csv("CPIAUCSL", fred_start, fred_end)
+
+    # ECOS 100대 지표 내부 API: M1
+    result["M1"] = _fetch_ecos_key100("K002")
+
+    # 장단기 금리차 (10Y - 2Y) 계산
+    for prefix, k10, k2 in [("KR", "KR10Y", "KR2Y"), ("US", "US10Y", "US2Y")]:
+        df10 = result.get(k10, pd.DataFrame())
+        df2 = result.get(k2, pd.DataFrame())
+        if not df10.empty and not df2.empty:
+            spread = df10[["Close"]].join(df2[["Close"]], lsuffix="_10", rsuffix="_2", how="inner")
+            spread["Close"] = spread["Close_10"] - spread["Close_2"]
+            result[f"{prefix}_spread"] = spread[["Close"]]
+
+    # 외국인 순매수 누적
+    for key in ["외국인(유가)", "외국인(코스닥)"]:
+        df = result.get(key, pd.DataFrame())
+        if not df.empty:
+            result[f"{key}_cum"] = pd.DataFrame({"Close": df["Close"].cumsum()}, index=df.index)
+
+    return result
+
+
+def _echarts_indicator(df, title: str, height: int = 280, decimal: int = 2, unit: str = "", key: str = ""):
+    """ECharts 기반 시장 지표 라인 차트 (주가 차트 스타일)"""
+    from streamlit_echarts import st_echarts
+
+    if df.empty:
+        st.info(f"{title} 데이터를 불러올 수 없습니다.")
+        return
+
+    _df = df.reset_index()
+    _df.columns = ["날짜", "값"]
+    _df = _df.dropna(subset=["값"])
+    if _df.empty:
+        st.info(f"{title} 데이터를 불러올 수 없습니다.")
+        return
+    dates = [d.strftime("%Y-%m-%d") for d in _df["날짜"]]
+    values = [round(float(v), decimal) for v in _df["값"]]
+
+    _last = values[-1]
+    _first = values[0]
+    _chg_pct = (_last / _first - 1) * 100 if _first else 0
+
+    # y축 범위: min~max에 5% 여유
+    y_min = min(values)
+    y_max = max(values)
+    margin = (y_max - y_min) * 0.05 if y_max != y_min else abs(y_max) * 0.02
+    y_lo = round(y_min - margin, decimal)
+    y_hi = round(y_max + margin, decimal)
+
+    # 상승/하락 색상
+    is_up = _last >= _first
+    line_color = "#ef5350" if is_up else "#42a5f5"       # 빨강=상승, 파랑=하락
+    area_top   = "rgba(239,83,80,0.15)" if is_up else "rgba(66,165,245,0.15)"
+
+    option = {
+        "animation": False,
+        "title": {
+            "text": title,
+            "subtext": f"현재 {unit}{_last:,.{decimal}f}  |  변동 {_chg_pct:+.2f}%",
+            "left": "center",
+            "textStyle": {"color": "#ccc", "fontSize": 14, "fontWeight": "bold"},
+            "subtextStyle": {"color": "#888", "fontSize": 11},
+        },
+        "tooltip": {
+            "trigger": "axis",
+            "backgroundColor": "rgba(20,20,30,0.9)",
+            "borderColor": "#555",
+            "textStyle": {"color": "#eee", "fontSize": 12},
+            "formatter": None,  # 기본 포맷 사용
+        },
+        "grid": {
+            "left": "12%", "right": "5%", "top": "22%", "bottom": "15%",
+        },
+        "xAxis": {
+            "type": "category",
+            "data": dates,
+            "axisLine": {"lineStyle": {"color": "#444"}},
+            "axisLabel": {"color": "#888", "fontSize": 10},
+            "axisTick": {"show": False},
+        },
+        "yAxis": {
+            "type": "value",
+            "min": y_lo,
+            "max": y_hi,
+            "splitNumber": 5,
+            "axisLine": {"show": False},
+            "axisLabel": {"color": "#888", "fontSize": 10},
+            "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.06)"}},
+        },
+        "dataZoom": [
+            {
+                "type": "inside",
+                "start": 0, "end": 100,
+            },
+        ],
+        "series": [
+            {
+                "type": "line",
+                "data": values,
+                "symbol": "none",
+                "lineStyle": {"color": line_color, "width": 2},
+                "areaStyle": {
+                    "color": {
+                        "type": "linear",
+                        "x": 0, "y": 0, "x2": 0, "y2": 1,
+                        "colorStops": [
+                            {"offset": 0, "color": area_top},
+                            {"offset": 1, "color": "rgba(0,0,0,0)"},
+                        ],
+                    },
+                },
+                "markLine": {
+                    "silent": True,
+                    "symbol": "none",
+                    "data": [
+                        {
+                            "yAxis": _last,
+                            "lineStyle": {"color": line_color, "type": "dashed", "width": 1},
+                            "label": {
+                                "show": True,
+                                "position": "insideEndTop",
+                                "formatter": f"{unit}{_last:,.{decimal}f}",
+                                "color": line_color,
+                                "fontSize": 11,
+                            },
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+
+    _key = key or f"mkt_{title.replace(' ', '_')}"
+    st_echarts(options=option, height=f"{height}px", key=_key)
+
+
+def _echarts_cpi(df, title: str, height: int = 320, key: str = ""):
+    """CPI 전용 차트: 막대(지수) + 꺾은선(YoY %)"""
+    from streamlit_echarts import st_echarts
+
+    if df.empty:
+        st.info(f"{title} 데이터를 불러올 수 없습니다.")
+        return
+
+    _df = df.reset_index()
+    _df.columns = ["날짜", "값"]
+    _df = _df.dropna(subset=["값"])
+    if len(_df) < 13:
+        _echarts_indicator(df, title, height=height, decimal=1, key=key)
+        return
+
+    dates = [d.strftime("%Y-%m") for d in _df["날짜"]]
+    values = [round(float(v), 1) for v in _df["값"]]
+
+    # YoY 계산 (12개월 전 대비)
+    yoy = [None] * 12
+    for i in range(12, len(values)):
+        prev = values[i - 12]
+        if prev and prev != 0:
+            yoy.append(round((values[i] / prev - 1) * 100, 2))
+        else:
+            yoy.append(None)
+
+    _last_val = values[-1]
+    _last_yoy = yoy[-1] if yoy[-1] is not None else 0
+
+    # y축 범위
+    v_min, v_max = min(values), max(values)
+    v_margin = (v_max - v_min) * 0.05
+    yoy_valid = [y for y in yoy if y is not None]
+    y_min = min(yoy_valid) if yoy_valid else 0
+    y_max = max(yoy_valid) if yoy_valid else 5
+    y_margin = (y_max - y_min) * 0.1
+
+    option = {
+        "animation": False,
+        "title": {
+            "text": title,
+            "subtext": f"지수 {_last_val:.1f}  |  YoY {_last_yoy:+.2f}%",
+            "left": "center",
+            "textStyle": {"color": "#ccc", "fontSize": 14, "fontWeight": "bold"},
+            "subtextStyle": {"color": "#888", "fontSize": 11},
+        },
+        "tooltip": {
+            "trigger": "axis",
+            "backgroundColor": "rgba(20,20,30,0.9)",
+            "borderColor": "#555",
+            "textStyle": {"color": "#eee", "fontSize": 12},
+        },
+        "legend": {
+            "data": ["CPI 지수", "YoY %"],
+            "top": "8%",
+            "textStyle": {"color": "#888", "fontSize": 10},
+        },
+        "grid": {
+            "left": "10%", "right": "10%", "top": "25%", "bottom": "15%",
+        },
+        "xAxis": {
+            "type": "category",
+            "data": dates,
+            "axisLine": {"lineStyle": {"color": "#444"}},
+            "axisLabel": {"color": "#888", "fontSize": 10},
+            "axisTick": {"show": False},
+        },
+        "yAxis": [
+            {
+                "type": "value",
+                "name": "지수",
+                "min": round(v_min - v_margin, 1),
+                "max": round(v_max + v_margin, 1),
+                "axisLine": {"show": False},
+                "axisLabel": {"color": "#888", "fontSize": 10},
+                "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.06)"}},
+            },
+            {
+                "type": "value",
+                "name": "YoY %",
+                "min": round(y_min - y_margin, 1),
+                "max": round(y_max + y_margin, 1),
+                "axisLine": {"show": False},
+                "axisLabel": {"color": "#ff9800", "fontSize": 10, "formatter": "{value}%"},
+                "splitLine": {"show": False},
+            },
+        ],
+        "dataZoom": [{"type": "inside", "start": 0, "end": 100}],
+        "series": [
+            {
+                "name": "CPI 지수",
+                "type": "bar",
+                "data": values,
+                "yAxisIndex": 0,
+                "itemStyle": {"color": "rgba(66,165,245,0.5)"},
+                "barMaxWidth": 20,
+            },
+            {
+                "name": "YoY %",
+                "type": "line",
+                "data": yoy,
+                "yAxisIndex": 1,
+                "symbol": "circle",
+                "symbolSize": 4,
+                "lineStyle": {"color": "#ff9800", "width": 2},
+                "itemStyle": {"color": "#ff9800"},
+            },
+        ],
+    }
+
+    st_echarts(options=option, height=f"{height}px", key=key)
+
+
+def show_market_indicators():
+    st.title("🌍 시장 지표")
+
+    _period = st.select_slider(
+        "조회 기간",
+        options=[30, 60, 90, 180, 365],
+        value=90,
+        format_func=lambda x: f"{x}일",
+        key="mkt_ind_period",
+    )
+
+    # 한 번에 모든 데이터 로드
+    with st.spinner("시장 데이터 로딩 중..."):
+        data = _fetch_all_indicators(_period)
+
+    _now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    st.caption(f"주요 거시경제 지표 추이  ·  조회 {_now}")
+
+    # ── 1. 주요 지수 ──
+    st.subheader("주요 지수")
+    ix_c1, ix_c2 = st.columns(2)
+    with ix_c1:
+        _echarts_indicator(data.get("코스피", pd.DataFrame()), "코스피", key=f"mi_kospi_{_period}")
+        _echarts_indicator(data.get("코스닥", pd.DataFrame()), "코스닥", key=f"mi_kosdaq_{_period}")
+    with ix_c2:
+        _echarts_indicator(data.get("S&P500", pd.DataFrame()), "S&P500", key=f"mi_sp500_{_period}")
+        _echarts_indicator(data.get("나스닥", pd.DataFrame()), "나스닥", key=f"mi_nasdaq_{_period}")
+
+    st.divider()
+
+    # ── 2. 외국인 수급 ──
+    st.subheader("외국인 수급")
+    sup_c1, sup_c2 = st.columns(2)
+    with sup_c1:
+        _echarts_indicator(data.get("외국인(유가)", pd.DataFrame()), "외국인 순매수 - 유가증권 (일별, 억원)", decimal=0, key=f"mi_frgn_kospi_{_period}")
+        _echarts_indicator(data.get("외국인(유가)_cum", pd.DataFrame()), "외국인 누적 순매수 - 유가증권 (억원)", decimal=0, key=f"mi_frgn_kospi_cum_{_period}")
+    with sup_c2:
+        _echarts_indicator(data.get("외국인(코스닥)", pd.DataFrame()), "외국인 순매수 - 코스닥 (일별, 억원)", decimal=0, key=f"mi_frgn_kosdaq_{_period}")
+        _echarts_indicator(data.get("외국인(코스닥)_cum", pd.DataFrame()), "외국인 누적 순매수 - 코스닥 (억원)", decimal=0, key=f"mi_frgn_kosdaq_cum_{_period}")
+
+    st.divider()
+
+    # ── 3. 금리 ──
+    st.subheader("금리")
+    rate_c1, rate_c2 = st.columns(2)
+    with rate_c1:
+        _echarts_indicator(data.get("KR10Y", pd.DataFrame()), "한국 국고채 10년물", decimal=3, key=f"mi_kr10y_{_period}")
+        _echarts_indicator(data.get("KR2Y", pd.DataFrame()), "한국 국고채 2년물", decimal=3, key=f"mi_kr2y_{_period}")
+        df_kr_sp = data.get("KR_spread", pd.DataFrame())
+        _echarts_indicator(df_kr_sp, "한국 장단기 금리차 (10Y-2Y)", decimal=3, key=f"mi_kr_spread_{_period}")
+        if not df_kr_sp.empty:
+            _sp = float(df_kr_sp.iloc[-1]["Close"])
+            st.caption(f"{'정상 (양수)' if _sp > 0 else '역전 (경기침체 경고)'}")
+    with rate_c2:
+        _echarts_indicator(data.get("US10Y", pd.DataFrame()), "미국 국채 10년물", decimal=3, key=f"mi_us10y_{_period}")
+        _echarts_indicator(data.get("US2Y", pd.DataFrame()), "미국 국채 2년물", decimal=3, key=f"mi_us2y_{_period}")
+        df_us_sp = data.get("US_spread", pd.DataFrame())
+        _echarts_indicator(df_us_sp, "미국 장단기 금리차 (10Y-2Y)", decimal=3, key=f"mi_us_spread_{_period}")
+        if not df_us_sp.empty:
+            _sp = float(df_us_sp.iloc[-1]["Close"])
+            st.caption(f"{'정상 (양수)' if _sp > 0 else '역전 (경기침체 경고)'}")
+
+    st.divider()
+
+    # ── 4. 변동성 ──
+    st.subheader("변동성")
+    vol_c1, vol_c2 = st.columns(2)
+    with vol_c1:
+        df_vix = data.get("VIX", pd.DataFrame())
+        _echarts_indicator(df_vix, "VIX (S&P500 변동성)", key=f"mi_vix_{_period}")
+        if not df_vix.empty:
+            _v = float(df_vix.iloc[-1]["Close"])
+            _level = "극도 공포" if _v > 30 else "공포" if _v > 20 else "보통" if _v > 15 else "탐욕"
+            st.caption(f"현재 수준: {_level}")
+
+    st.divider()
+
+    # ── 5. 통화량 ──
+    st.subheader("통화량")
+    m_c1, m_c2 = st.columns(2)
+    with m_c1:
+        _echarts_indicator(data.get("M1", pd.DataFrame()), "M1 협의통화 (십억원)", decimal=1, key=f"mi_m1_{_period}")
+
+    st.divider()
+
+    # ── 6. 환율 ──
+    st.subheader("환율")
+    fx_c1, fx_c2 = st.columns(2)
+    with fx_c1:
+        _echarts_indicator(data.get("USD/KRW", pd.DataFrame()), "USD/KRW (원/달러)", key=f"mi_usdkrw_{_period}")
+    with fx_c2:
+        _echarts_indicator(data.get("DXY", pd.DataFrame()), "달러 인덱스 (DXY)", key=f"mi_dxy_{_period}")
+
+    st.divider()
+
+    # ── 7. 물가 ──
+    st.subheader("물가")
+    cpi_c1, cpi_c2 = st.columns(2)
+    with cpi_c1:
+        _echarts_cpi(data.get("CPI", pd.DataFrame()), "한국 소비자물가지수 (CPI)", key=f"mi_cpi_{_period}")
+    with cpi_c2:
+        _echarts_cpi(data.get("US_CPI", pd.DataFrame()), "미국 소비자물가지수 (CPI)", key=f"mi_us_cpi_{_period}")
+
+    st.divider()
+
+    # ── 8. 원자재 ──
+    st.subheader("원자재")
+    cmd_c1, cmd_c2 = st.columns(2)
+    with cmd_c1:
+        _echarts_indicator(data.get("WTI", pd.DataFrame()), "WTI 원유 ($/bbl)", unit="$", key=f"mi_wti_{_period}")
+        _echarts_indicator(data.get("Gold", pd.DataFrame()), "금 ($/oz)", unit="$", key=f"mi_gold_{_period}")
+        _echarts_indicator(data.get("Copper", pd.DataFrame()), "구리 ($/lb)", unit="$", key=f"mi_copper_{_period}")
+    with cmd_c2:
+        _echarts_indicator(data.get("Silver", pd.DataFrame()), "은 ($/oz)", unit="$", key=f"mi_silver_{_period}")
+        _echarts_indicator(data.get("NatGas", pd.DataFrame()), "천연가스 ($/MMBtu)", unit="$", key=f"mi_natgas_{_period}")
 
 
 # ══════════════════════════════════════════════════════════
@@ -1159,11 +1999,129 @@ def show_pattern_scanner():
 
 
 # ══════════════════════════════════════════════════════════
+# Short Scanner 렌더링
+# ══════════════════════════════════════════════════════════
+
+def show_short_scanner():
+    st.title("🔻 Short Scanner")
+    st.caption("Stage 4 하락 추세 종목 + 인버스 ETF 매핑  ·  200일선 하방 · MA 역배열")
+
+    col_ref, col_info, _ = st.columns([1, 4, 3])
+    with col_ref:
+        if st.button("🔄 강제 재스캔", key="short_rescan"):
+            today = datetime.now().strftime("%Y%m%d")
+            for f in (Path(__file__).parent / "cache").glob(f"short_*{today}.json"):
+                f.unlink(missing_ok=True)
+            for k in [k for k in st.session_state if k.startswith("short_scan_")]:
+                del st.session_state[k]
+            st.rerun()
+    with col_info:
+        cache_time = get_short_cache_info()
+        if cache_time:
+            st.caption(f"캐시: {cache_time}")
+        else:
+            st.caption("캐시 없음 — 아래에서 스캔 시작")
+
+    st.divider()
+
+    cache_key = "short_scan_result"
+
+    if cache_key not in st.session_state:
+        status = st.empty()
+        bar = st.progress(0)
+        status.info("⏳ Stage 4 종목 스캔 중...")
+
+        def _cb(done, total):
+            pct = int(done / total * 100)
+            bar.progress(pct)
+            status.info(f"⏳ 스캔 중... {done}/{total} ({pct}%)")
+
+        try:
+            df = scan_short_candidates(use_cache=True, progress_cb=_cb)
+            st.session_state[cache_key] = df
+        except Exception as e:
+            status.error(f"스캔 실패: {e}")
+            bar.empty()
+            return
+        finally:
+            bar.empty()
+            status.empty()
+
+    df = st.session_state[cache_key]
+
+    if df is None or df.empty:
+        st.success("Stage 4 진입 종목이 없습니다. (모든 대상 종목이 200일선 위)")
+        return
+
+    st.markdown(f"**{len(df)}개 종목** Stage 4 감지")
+
+    # 테이블 표시
+    show_cols = ["종목코드", "종목명", "상태", "현재가", "200일선대비(%)", "고점대비(%)", "돌파경과(일)", "거래량비율(%)", "인버스ETF"]
+    df_show = df[show_cols].copy()
+
+    result = _aggrid(
+        df_show,
+        key="short_grid",
+        height=min(400, 60 + len(df_show) * 35),
+        click_nav=True,
+        col_widths={"종목명": 120, "인버스ETF": 160, "현재가": 100},
+        price_cols=["현재가"],
+        pct_cols=["200일선대비(%)", "고점대비(%)", "거래량비율(%)"],
+    )
+
+    # 행 클릭 → 원본 종목 차트 이동
+    selected = result["selected_rows"] if result else None
+    if selected is not None and len(selected) > 0:
+        row = selected[0]
+        st.session_state.view = "chart"
+        st.session_state.chart_ticker = row["종목코드"]
+        st.session_state.chart_name = row.get("종목명", "")
+        st.session_state.chart_period = 60
+        st.session_state.sidebar_ticker = row["종목코드"]
+        st.session_state.return_to_view = "short_scanner"
+        st.rerun()
+
+    st.divider()
+
+    # 인버스 ETF 전체 매핑 (클릭 시 차트 이동)
+    st.subheader("📋 인버스 ETF 매핑")
+    st.caption("행 클릭 시 인버스 ETF 차트로 이동")
+    ref_rows = []
+    for ticker, info in INVERSE_ETF_MAP.items():
+        for inv_ticker, inv_name in info["inverse"]:
+            ref_rows.append({
+                "종목코드": inv_ticker,
+                "종목명": inv_name,
+                "원본종목": f"{ticker} ({info['name']})",
+                "타입": "지수 인버스" if ticker in ("SPY", "QQQ") else "개별 인버스",
+            })
+    df_ref = pd.DataFrame(ref_rows)
+    ref_result = _aggrid(
+        df_ref,
+        key="short_etf_ref",
+        height=min(500, 60 + len(df_ref) * 35),
+        click_nav=True,
+        col_widths={"종목코드": 100, "종목명": 250, "원본종목": 180, "타입": 120},
+    )
+    ref_selected = ref_result["selected_rows"] if ref_result else None
+    if ref_selected is not None and len(ref_selected) > 0:
+        row = ref_selected[0]
+        st.session_state.view = "chart"
+        st.session_state.chart_ticker = row["종목코드"]
+        st.session_state.chart_name = row.get("종목명", "")
+        st.session_state.chart_period = 60
+        st.session_state.sidebar_ticker = row["종목코드"]
+        st.session_state.return_to_view = "short_scanner"
+        st.rerun()
+
+
+# ══════════════════════════════════════════════════════════
 # 포트폴리오 렌더링
 # ══════════════════════════════════════════════════════════
 
+@st.cache_data(ttl=300)
 def _fetch_current_price(ticker: str) -> float:
-    """현재가 조회 (최근 5일 중 마지막 종가)"""
+    """현재가 조회 (최근 5일 중 마지막 종가, 5분 캐시)"""
     try:
         from datetime import timedelta
         end   = datetime.now()
@@ -1191,11 +2149,15 @@ def _render_equity_curve(source_df=None, date_col="날짜"):
     import altair as alt
 
     if source_df is not None:
-        # 종목별: 청산일 기준 당일 합산 후 누적
-        raw = source_df[[date_col, "실현손익(원)"]].copy()
-        raw = raw.groupby(date_col, as_index=False)["실현손익(원)"].sum()
+        # 손익 컬럼 자동 감지
+        _pnl_c = "실현손익($)" if "실현손익($)" in source_df.columns else "실현손익(원)"
+        if _pnl_c not in source_df.columns:
+            st.info("데이터가 없습니다.")
+            return
+        raw = source_df[[date_col, _pnl_c]].copy()
+        raw = raw.groupby(date_col, as_index=False)[_pnl_c].sum()
         raw = raw.sort_values(date_col).reset_index(drop=True)
-        raw["누적손익(원)"] = raw["실현손익(원)"].cumsum()
+        raw["누적손익(원)"] = raw[_pnl_c].cumsum()
         first_dt   = pd.to_datetime(raw[date_col].iloc[0])
         start_date = first_dt.replace(day=1).strftime("%Y-%m-%d")
         start_row  = pd.DataFrame([{date_col: start_date, "누적손익(원)": 0}])
@@ -1243,7 +2205,9 @@ def _render_monthly_performance(source_df=None, date_col="날짜"):
     import altair as alt
 
     if source_df is not None:
-        raw = source_df[[date_col, "실현손익(원)", "수익률(%)"]].copy()
+        _pnl_c2 = "실현손익($)" if "실현손익($)" in source_df.columns else "실현손익(원)"
+        raw = source_df[[date_col, _pnl_c2, "수익률(%)"]].copy()
+        raw = raw.rename(columns={_pnl_c2: "실현손익(원)"})
         raw["월"] = pd.to_datetime(raw[date_col]).dt.to_period("M").astype(str)
         rows = []
         for month, grp in raw.groupby("월"):
@@ -1316,8 +2280,8 @@ def _render_monthly_performance(source_df=None, date_col="날짜"):
 
 def _show_portfolio_us():
     """미국 포트폴리오 UI (달러 기준)"""
-    tab_hold, tab_pnl, tab_perf, tab_log = st.tabs(
-        ["📋 보유 현황", "📊 거래별 성과분석", "📊 종목별 성과분석", "📜 거래 이력"]
+    tab_hold, tab_pnl, tab_perf, tab_review, tab_log = st.tabs(
+        ["📋 보유 현황", "📊 거래별 성과분석", "📊 종목별 성과분석", "📅 월별 리뷰", "📜 거래 이력"]
     )
 
     # ── 보유 현황 ─────────────────────────────
@@ -1427,16 +2391,17 @@ def _show_portfolio_us():
                                 key="us_buy_reason_type", on_change=_on_us_reason_change)
             _is_us_bo = st.session_state.get("us_buy_reason_type", "PB") == "BO"
 
-            with st.form("us_buy_form", clear_on_submit=True):
+            with st.form("us_buy_form", clear_on_submit=False):
                 c1, c2 = st.columns(2)
                 us_ticker = st.session_state.get("us_buy_ticker", "").strip().upper()
                 us_name   = st.session_state.get("us_buy_name", "").strip()
                 us_date   = c1.date_input("매수일", value=datetime.now().date(), key="us_buy_date")
 
-                c4, c5, c6 = st.columns(3)
+                c4, c5, c6, c7 = st.columns(4)
                 us_price = c4.number_input("매수가 ($)", min_value=0.0, step=0.01, format="%.2f", key="us_buy_price")
                 us_qty   = c5.number_input("수량 (주)", min_value=1, step=1, key="us_buy_qty")
                 us_stop  = c6.number_input("손절가 ($)", min_value=0.0, step=0.01, format="%.2f", key="us_buy_stop")
+                us_tp    = c7.number_input("1차익절가 ($)", min_value=0.0, step=0.01, format="%.2f", key="us_buy_tp")
 
                 if _is_us_bo:
                     us_memo = st.text_input("메모", key="us_buy_memo")
@@ -1457,11 +2422,14 @@ def _show_portfolio_us():
                             date=us_date.strftime("%Y-%m-%d"),
                             price=us_price, quantity=int(us_qty),
                             stop_loss=us_stop, entry_reason=_entry_reason, memo=us_memo,
+                            take_profit=us_tp,
                         )
                         st.session_state["portfolio_toast"] = (f"✅ {us_name} 매수 저장 완료!", "success")
-                        st.session_state["us_buy_expander_open"] = False
-                        st.session_state.pop("us_buy_ticker", None)
-                        st.session_state.pop("us_buy_name", None)
+                        st.session_state["us_buy_expander_open"] = True
+                        # 폼 필드 초기화 (다음 입력 준비)
+                        for k in ["us_buy_ticker", "us_buy_name", "us_buy_price", "us_buy_qty", "us_buy_stop", "us_buy_tp", "us_buy_memo"]:
+                            if k in st.session_state:
+                                del st.session_state[k]
                         st.rerun()
 
         # ── 매도 입력 ──
@@ -1530,6 +2498,31 @@ def _show_portfolio_us():
                     else:
                         update_stop_loss(_pos_id3, _sl_date.strftime("%Y-%m-%d"), _sl_price, _sl_note)
                         st.session_state["portfolio_toast"] = ("✅ 손절가 수정 완료!", "success")
+                        st.rerun()
+
+        # ── 1차 익절가 수정 ──
+        with st.expander("✏️ 1차 익절가 수정"):
+            df_pos_tp = get_open_positions()
+            if df_pos_tp.empty:
+                st.info("보유 중인 종목이 없습니다.")
+            else:
+                _tp_choices = {
+                    f"{r['종목명']} ({r['종목코드']}) — 현재 익절가 ${r['1차익절가']:.2f}" if r['1차익절가'] else
+                    f"{r['종목명']} ({r['종목코드']}) — 미설정": r["position_id"]
+                    for _, r in df_pos_tp.iterrows()
+                }
+                with st.form("us_tp_form"):
+                    _tp_sel = st.selectbox("종목 선택", list(_tp_choices.keys()), key="us_tp_sel")
+                    _tp_pos_id = _tp_choices[_tp_sel]
+                    _tp_price = st.number_input("1차 익절가 ($)", min_value=0.0, step=0.01, format="%.2f", key="us_tp_price")
+                    _us_tp_submitted = st.form_submit_button("✅ 익절가 저장", type="primary")
+
+                if _us_tp_submitted:
+                    if _tp_price <= 0:
+                        st.error("1차 익절가를 입력해주세요.")
+                    else:
+                        update_take_profit(_tp_pos_id, _tp_price)
+                        st.session_state["portfolio_toast"] = ("✅ 1차 익절가 수정 완료!", "success")
                         st.rerun()
 
         # ── 거래 내역 수정/삭제 ──
@@ -1667,55 +2660,169 @@ def _show_portfolio_us():
             _rename_us = {c: c.replace("(원)", "($)") for c in df_pnl.columns if "(원)" in c}
             df_pnl = df_pnl.rename(columns=_rename_us)
             _pnl_col = "실현손익($)" if "실현손익($)" in df_pnl.columns else "실현손익(원)"
-
-            n      = len(df_pnl)
-            wins   = df_pnl[df_pnl["수익률(%)"] > 0]
-            losses = df_pnl[df_pnl["수익률(%)"] <= 0]
-            win_rate  = len(wins) / n * 100 if n > 0 else 0
-            avg_win   = wins["수익률(%)"].mean()   if len(wins)   > 0 else 0
-            avg_loss  = losses["수익률(%)"].mean() if len(losses) > 0 else 0
-            avg_ret   = df_pnl["수익률(%)"].mean()
-            _pnl_col = "실현손익($)" if "실현손익($)" in df_pnl.columns else "실현손익(원)"
             _fee_col = "거래비용($)" if "거래비용($)" in df_pnl.columns else "거래비용(원)"
             _net_col = "비용차감손익($)" if "비용차감손익($)" in df_pnl.columns else "비용차감손익(원)"
-            total_pnl  = df_pnl[_pnl_col].sum() if _pnl_col in df_pnl.columns else 0
-            total_fees = df_pnl[_fee_col].sum() if _fee_col in df_pnl.columns else 0
-            total_net  = df_pnl[_net_col].sum() if _net_col in df_pnl.columns else total_pnl
-            total_inv = (df_pnl["평균매수가"] * df_pnl["수량"]).sum() if "평균매수가" in df_pnl.columns else 0
 
-            initial_capital = get_total_capital()
-            turnover = total_inv / initial_capital if initial_capital > 0 else None
-            adj_ret  = avg_ret * turnover if turnover is not None else None
+            df_pnl["_buy_cost"] = df_pnl["평균매수가"] * df_pnl["수량"] if "평균매수가" in df_pnl.columns else 1
+            df_pnl["_월"] = pd.to_datetime(df_pnl["날짜"]).dt.to_period("M").astype(str)
+            df_pnl["_연도"] = pd.to_datetime(df_pnl["날짜"]).dt.year.astype(str)
 
-            c1, c2, c3 = st.columns(3)
-            c1.metric("총 실현손익 (비용차감)", f"${total_net:+,.2f}",
-                      delta=f"거래비용 ${total_fees:,.2f}", delta_color="inverse")
-            c2.metric("거래 건수",   f"{n}건")
-            c3.metric("승/패",       f"{len(wins)}승 {len(losses)}패")
+            _us_pnl_years = sorted(df_pnl["_연도"].unique(), reverse=True)
+            _us_pnl_opts = ["전체"] + _us_pnl_years
+            _cur_year = datetime.now().strftime("%Y")
+            _us_pnl_year_idx = _us_pnl_opts.index(_cur_year) if _cur_year in _us_pnl_opts else 0
+            _us_pnl_sel_year = st.selectbox("기간 선택", _us_pnl_opts, index=_us_pnl_year_idx, key="us_pnl_year")
 
-            c4, c5, c6 = st.columns(3)
-            c4.metric("승률",              f"{win_rate:.1f}%")
-            c5.metric("승리 시 평균수익률", f"{avg_win:+.2f}%")
-            c6.metric("패배 시 평균손실률", f"{avg_loss:+.2f}%")
+            if _us_pnl_sel_year == "전체":
+                _us_pnl_filtered = df_pnl
+                _us_pnl_sel_month = None
+            else:
+                _us_pnl_year_df = df_pnl[df_pnl["_연도"] == _us_pnl_sel_year]
+                _us_pnl_month_opts = ["연간 전체"] + sorted(_us_pnl_year_df["_월"].unique(), reverse=True)
+                _cur_month = datetime.now().strftime("%Y-%m")
+                _us_pnl_month_idx = _us_pnl_month_opts.index(_cur_month) if _cur_month in _us_pnl_month_opts else 0
+                _us_pnl_sel_month = st.selectbox("월 선택", _us_pnl_month_opts, index=_us_pnl_month_idx, key="us_pnl_month")
+                if _us_pnl_sel_month == "연간 전체":
+                    _us_pnl_filtered = _us_pnl_year_df
+                    _us_pnl_sel_month = None
+                else:
+                    _us_pnl_filtered = _us_pnl_year_df[_us_pnl_year_df["_월"] == _us_pnl_sel_month]
 
-            c7, c8, c9 = st.columns(3)
-            c7.metric("전체 평균수익률",    f"{avg_ret:+.2f}%")
-            c8.metric("자산회전율",
-                      f"{turnover:.2f}배" if turnover is not None else "원금 미설정")
-            c9.metric("회전율 감안 수익률",
-                      f"{adj_ret:+.2f}%" if adj_ret is not None else "원금 미설정")
+            _us_pnl_label = _us_pnl_sel_year if _us_pnl_sel_year != "전체" else "전체"
+            if _us_pnl_sel_month:
+                _us_pnl_label = _us_pnl_sel_month
+
+            def _render_trade_kpi_us(df_sub):
+                n = len(df_sub)
+                if n == 0:
+                    st.info("해당 기간에 거래가 없습니다.")
+                    return
+                wins = df_sub[df_sub["수익률(%)"] > 0]
+                losses = df_sub[df_sub["수익률(%)"] <= 0]
+                win_rate = len(wins) / n * 100
+                total_pnl = df_sub[_pnl_col].sum() if _pnl_col in df_sub.columns else 0
+                total_fees = df_sub[_fee_col].sum() if _fee_col in df_sub.columns else 0
+                total_net = df_sub[_net_col].sum() if _net_col in df_sub.columns else total_pnl
+                total_inv = df_sub["_buy_cost"].sum()
+                _w_wins = wins["수익률(%)"].values * wins["_buy_cost"].values if len(wins) > 0 else []
+                _w_losses = losses["수익률(%)"].values * losses["_buy_cost"].values if len(losses) > 0 else []
+                avg_win = _w_wins.sum() / wins["_buy_cost"].sum() if len(wins) > 0 and wins["_buy_cost"].sum() > 0 else 0
+                avg_loss = _w_losses.sum() / losses["_buy_cost"].sum() if len(losses) > 0 and losses["_buy_cost"].sum() > 0 else 0
+                avg_ret = (df_sub["수익률(%)"].values * df_sub["_buy_cost"].values).sum() / df_sub["_buy_cost"].sum() if df_sub["_buy_cost"].sum() > 0 else 0
+                avg_planned_loss = losses["목표손절률(%)"].dropna().mean() if len(losses) > 0 and "목표손절률(%)" in losses.columns else None
+                if avg_planned_loss is not None:
+                    losses_wt = losses.dropna(subset=["목표손절률(%)"])
+                    violations = losses_wt[losses_wt["수익률(%)"] < losses_wt["목표손절률(%)"]]
+                    n_violations = len(violations)
+                    violation_rate = n_violations / len(losses_wt) * 100 if len(losses_wt) > 0 else 0
+                else:
+                    n_violations = 0
+                    violation_rate = 0
+                initial_capital = get_total_capital()
+                turnover = total_inv / initial_capital if initial_capital > 0 else None
+                capital_ret = (total_pnl / initial_capital * 100) if initial_capital > 0 else None
+                rr_vals = df_sub["RR"].dropna() if "RR" in df_sub.columns else pd.Series(dtype=float)
+                avg_rr = rr_vals.mean() if len(rr_vals) > 0 else None
+                avg_hold_win = wins["보유일수"].dropna().mean() if len(wins) > 0 and "보유일수" in wins.columns else None
+                avg_hold_loss = losses["보유일수"].dropna().mean() if len(losses) > 0 and "보유일수" in losses.columns else None
+
+                c1, c2, c3 = st.columns(3)
+                c1.metric("총 실현손익 (비용차감)", f"${total_net:+,.2f}",
+                          delta=f"거래비용 ${total_fees:,.2f}", delta_color="inverse")
+                c2.metric("거래 건수", f"{n}건")
+                c3.metric("승/패", f"{len(wins)}승 {len(losses)}패")
+                c4, c5, c6 = st.columns(3)
+                c4.metric("승률", f"{win_rate:.1f}%")
+                c5.metric("승리 시 평균수익률", f"{avg_win:+.2f}%")
+                if avg_planned_loss is not None:
+                    _diff1 = avg_loss - avg_planned_loss
+                    _delta1_txt = f"목표보다 {abs(_diff1):.2f}%p 절약 ✓" if _diff1 > 0 else f"목표보다 {abs(_diff1):.2f}%p 초과"
+                else:
+                    _delta1_txt = None
+                c6.metric("패배 시 평균손실률", f"{avg_loss:+.2f}%",
+                          delta=_delta1_txt, delta_color="normal")
+                c4b, c5b, c6b = st.columns(3)
+                c4b.metric("목표손절 위반 횟수", f"{n_violations}회")
+                c5b.metric("목표손절 위반율", f"{violation_rate:.1f}%")
+                c6b.metric("패배 시 평균목표손절률", f"{avg_planned_loss:.2f}%" if avg_planned_loss is not None else "-")
+                c7, c8, c9 = st.columns(3)
+                c7.metric("전체 평균수익률 (가중)", f"{avg_ret:+.2f}%")
+                c8.metric("자산회전율", f"{turnover:.2f}배" if turnover is not None else "원금 미설정")
+                c9.metric("원금대비 실현수익률", f"{capital_ret:+.2f}%" if capital_ret is not None else "원금 미설정")
+                c10, c11, c12 = st.columns(3)
+                c10.metric("평균 RR", f"{avg_rr:.2f}" if avg_rr is not None else "-")
+                c11.metric("수익 시 평균보유기간", f"{avg_hold_win:.0f}일" if avg_hold_win is not None else "-")
+                c12.metric("손실 시 평균보유기간", f"{avg_hold_loss:.0f}일" if avg_hold_loss is not None else "-")
+
+            _render_trade_kpi_us(_us_pnl_filtered)
+
+            # ── 월별 KPI 비교표 (전체/연간 선택 시) ──
+            if not _us_pnl_sel_month and len(_us_pnl_filtered) > 0:
+                _us_months_in_range = sorted(_us_pnl_filtered["_월"].unique())
+                if len(_us_months_in_range) > 1:
+                    st.divider()
+                    st.subheader(f"월별 KPI 비교 ({_us_pnl_label})")
+                    _us_mkpi_rows = []
+                    _us_init_cap = get_total_capital()
+                    for _m in _us_months_in_range:
+                        _m_df = _us_pnl_filtered[_us_pnl_filtered["_월"] == _m]
+                        _mn = len(_m_df)
+                        if _mn == 0:
+                            continue
+                        _mw = _m_df[_m_df["수익률(%)"] > 0]
+                        _ml = _m_df[_m_df["수익률(%)"] <= 0]
+                        _m_bc = _m_df["_buy_cost"].sum()
+                        _m_avg_win = (_mw["수익률(%)"].values * (_mw["평균매수가"] * _mw["수량"]).values).sum() / (_mw["평균매수가"] * _mw["수량"]).sum() if len(_mw) > 0 and (_mw["평균매수가"] * _mw["수량"]).sum() > 0 else 0
+                        _m_avg_loss = (_ml["수익률(%)"].values * (_ml["평균매수가"] * _ml["수량"]).values).sum() / (_ml["평균매수가"] * _ml["수량"]).sum() if len(_ml) > 0 and (_ml["평균매수가"] * _ml["수량"]).sum() > 0 else 0
+                        _m_avg = (_m_df["수익률(%)"].values * _m_df["_buy_cost"].values).sum() / _m_bc if _m_bc > 0 else 0
+                        _m_pnl = _m_df[_pnl_col].sum() if _pnl_col in _m_df.columns else 0
+                        _m_fees = _m_df[_fee_col].sum() if _fee_col in _m_df.columns else 0
+                        _m_net = _m_df[_net_col].sum() if _net_col in _m_df.columns else _m_pnl
+                        _m_rr = _m_df["RR"].dropna().mean() if "RR" in _m_df.columns and _m_df["RR"].dropna().any() else None
+                        _m_planned = _ml["목표손절률(%)"].dropna().mean() if len(_ml) > 0 and "목표손절률(%)" in _ml.columns else None
+                        _m_lwt = _ml.dropna(subset=["목표손절률(%)"]) if len(_ml) > 0 and "목표손절률(%)" in _ml.columns else pd.DataFrame()
+                        _m_viols = len(_m_lwt[_m_lwt["수익률(%)"] < _m_lwt["목표손절률(%)"]]) if len(_m_lwt) > 0 else 0
+                        _m_viol_rate = _m_viols / len(_m_lwt) * 100 if len(_m_lwt) > 0 else 0
+                        _m_turnover = _m_bc / _us_init_cap if _us_init_cap > 0 else None
+                        _m_cap_ret = (_m_pnl / _us_init_cap * 100) if _us_init_cap > 0 else None
+                        _m_hold_win = _mw["보유일수"].dropna().mean() if len(_mw) > 0 and "보유일수" in _mw.columns else None
+                        _m_hold_loss = _ml["보유일수"].dropna().mean() if len(_ml) > 0 and "보유일수" in _ml.columns else None
+                        _us_mkpi_rows.append({
+                            "월": _m,
+                            "거래수": _mn,
+                            "승/패": f"{len(_mw)}/{len(_ml)}",
+                            "승률(%)": round(len(_mw) / _mn * 100, 1),
+                            "승리평균(%)": round(_m_avg_win, 2),
+                            "패배평균(%)": round(_m_avg_loss, 2),
+                            "전체평균(%)": round(_m_avg, 2),
+                            "평균RR": round(_m_rr, 2) if _m_rr is not None else None,
+                            "손절위반": _m_viols,
+                            "위반율(%)": round(_m_viol_rate, 1),
+                            "회전율": round(_m_turnover, 2) if _m_turnover is not None else None,
+                            "원금대비(%)": round(_m_cap_ret, 2) if _m_cap_ret is not None else None,
+                            "승리보유일": round(_m_hold_win, 0) if _m_hold_win is not None else None,
+                            "손실보유일": round(_m_hold_loss, 0) if _m_hold_loss is not None else None,
+                            "비용차감손익($)": round(_m_net, 2),
+                        })
+                    if _us_mkpi_rows:
+                        _us_mkpi_df = pd.DataFrame(_us_mkpi_rows)
+                        _aggrid(_us_mkpi_df, key=f"us_monthly_kpi_compare_{_us_pnl_label}", height=min(300, 60 + len(_us_mkpi_df) * 40),
+                                color_map={"전체평균(%)": "red_positive", "승리평균(%)": "red_positive", "패배평균(%)": "red_positive", "비용차감손익($)": "red_positive", "원금대비(%)": "red_positive"},
+                                pct_cols=["승률(%)", "승리평균(%)", "패배평균(%)", "전체평균(%)", "원금대비(%)"],
+                                price_cols=["비용차감손익($)"], price_decimals=2)
 
             st.divider()
             _us_pnl_color_map = {_pnl_col: "red_positive", _net_col: "red_positive", "수익률(%)": "red_positive", "비용차감수익률(%)": "red_positive"}
-            _aggrid(df_pnl, key="us_trade_pnl_table", height=450, click_nav=False,
+            _aggrid(_us_pnl_filtered, key=f"us_trade_pnl_table_{_us_pnl_label}", height=450, click_nav=False,
                     color_map=_us_pnl_color_map, pct_cols=["수익률(%)", "비용차감수익률(%)"], price_decimals=2)
 
             st.divider()
-            st.subheader("누적 수익 곡선")
-            _render_equity_curve()
+            st.subheader(f"누적 수익 곡선 ({_us_pnl_label})")
+            _render_equity_curve(source_df=_us_pnl_filtered)
             st.divider()
-            st.subheader("월별 성과")
-            _render_monthly_performance()
+            if not _us_pnl_sel_month:
+                st.subheader(f"월별 성과 ({_us_pnl_label})")
+                _render_monthly_performance(source_df=_us_pnl_filtered)
 
     # ── 종목별 성과분석 ─────────────────────────────
     with tab_perf:
@@ -1728,26 +2835,251 @@ def _show_portfolio_us():
             _pos_net_col = "비용차감손익($)" if "비용차감손익($)" in df_pos_pnl.columns else "비용차감손익(원)"
             _pos_fee_col = "거래비용($)" if "거래비용($)" in df_pos_pnl.columns else "거래비용(원)"
             _pos_pnl_col = "실현손익($)" if "실현손익($)" in df_pos_pnl.columns else "실현손익(원)"
+            _us_currency = "$" if "실현손익($)" in df_pos_pnl.columns else "원"
 
-            st.subheader("1. 전체 성과 요약")
-            overall_wins   = df_pos_pnl[df_pos_pnl["수익률(%)"] > 0]
-            overall_losses = df_pos_pnl[df_pos_pnl["수익률(%)"] <= 0]
-            overall_net    = df_pos_pnl[_pos_net_col].sum() if _pos_net_col in df_pos_pnl.columns else 0
-            overall_fees   = df_pos_pnl[_pos_fee_col].sum() if _pos_fee_col in df_pos_pnl.columns else 0
+            initial_capital_us = get_total_capital()
 
-            c1, c2, c3 = st.columns(3)
-            c1.metric("총 실현손익 (비용차감)", f"${overall_net:+,.2f}",
-                      delta=f"거래비용 ${overall_fees:,.2f}", delta_color="inverse")
-            c2.metric("종목 수",     f"{len(df_pos_pnl)}종목")
-            c3.metric("승/패",       f"{len(overall_wins)}승 {len(overall_losses)}패")
+            def _kpi_metrics_us(df_sub):
+                """df_sub 기준 KPI dict 반환 (미국)"""
+                n       = len(df_sub)
+                wins    = df_sub[df_sub["수익률(%)"] > 0]
+                losses  = df_sub[df_sub["수익률(%)"] <= 0]
+                total_inv  = (df_sub["평균매수가"] * df_sub["청산수량"]).sum()
+                total_pnl  = df_sub[_pos_pnl_col].sum() if _pos_pnl_col in df_sub.columns else 0
+                total_fees = df_sub[_pos_fee_col].sum() if _pos_fee_col in df_sub.columns else 0
+                total_net  = df_sub[_pos_net_col].sum() if _pos_net_col in df_sub.columns else total_pnl
+                # 금액 가중 평균수익률
+                df_sub = df_sub.copy()
+                df_sub["_buy_cost"] = df_sub["평균매수가"] * df_sub["청산수량"]
+                _bc_total = df_sub["_buy_cost"].sum()
+                wins_bc   = wins["평균매수가"] * wins["청산수량"] if len(wins) > 0 else None
+                losses_bc = losses["평균매수가"] * losses["청산수량"] if len(losses) > 0 else None
+                avg_win   = (wins["수익률(%)"].values * wins_bc.values).sum() / wins_bc.sum()       if wins_bc is not None and wins_bc.sum() > 0   else 0
+                avg_loss  = (losses["수익률(%)"].values * losses_bc.values).sum() / losses_bc.sum() if losses_bc is not None and losses_bc.sum() > 0 else 0
+                avg_ret   = (df_sub["수익률(%)"].values * df_sub["_buy_cost"].values).sum() / _bc_total if _bc_total > 0 else 0
+                avg_planned_loss_p = losses["목표손절률(%)"].dropna().mean() if len(losses) > 0 and "목표손절률(%)" in losses.columns else None
+                if avg_planned_loss_p is not None and "목표손절률(%)" in losses.columns:
+                    losses_wt = losses.dropna(subset=["목표손절률(%)"])
+                    viols = losses_wt[losses_wt["수익률(%)"] < losses_wt["목표손절률(%)"]]
+                    n_viols    = len(viols)
+                    viol_rate  = n_viols / len(losses_wt) * 100 if len(losses_wt) > 0 else 0
+                else:
+                    n_viols = 0
+                    viol_rate = 0
+                turnover    = total_inv / initial_capital_us if initial_capital_us > 0 else None
+                adj_ret     = avg_ret * turnover if turnover is not None else None
+                capital_ret = (total_pnl / initial_capital_us * 100) if initial_capital_us > 0 else None
+                avg_rr    = df_sub["RR"].dropna().mean() if "RR" in df_sub.columns and df_sub["RR"].dropna().any() else None
+                avg_hold_win  = wins["보유일수"].dropna().mean()   if len(wins) > 0 and "보유일수" in wins.columns   else None
+                avg_hold_loss = losses["보유일수"].dropna().mean() if len(losses) > 0 and "보유일수" in losses.columns else None
+                return {
+                    "종목수":               n,
+                    "승/패":               f"{len(wins)}승 {len(losses)}패",
+                    "승률(%)":             round(len(wins)/n*100, 1) if n > 0 else 0,
+                    "승리 평균수익률(%)":   round(avg_win,  2),
+                    "패배 평균손실률(%)":   round(avg_loss, 2),
+                    "패배 평균목표손절률(%)": round(avg_planned_loss_p, 2) if avg_planned_loss_p is not None else "-",
+                    "목표손절 위반 횟수":    n_viols,
+                    "목표손절 위반율(%)":    round(viol_rate, 1),
+                    "전체 평균수익률(%)":   round(avg_ret,  2),
+                    "자산회전율":          round(turnover, 2) if turnover is not None else "-",
+                    "원금대비수익률(%)":    round(capital_ret, 2) if capital_ret is not None else "-",
+                    "평균RR":              round(avg_rr, 2) if avg_rr is not None else "-",
+                    "수익시 평균보유일":    round(avg_hold_win,  0) if avg_hold_win  is not None else "-",
+                    "손실시 평균보유일":    round(avg_hold_loss, 0) if avg_hold_loss is not None else "-",
+                    f"총 실현손익({_us_currency})":  round(total_pnl, 2),
+                    f"거래비용({_us_currency})":     round(total_fees, 2),
+                    f"비용차감손익({_us_currency})": round(total_net, 2),
+                }
+
+            # ── 기간 선택 ──
+            df_pos_pnl_c = df_pos_pnl.copy()
+            df_pos_pnl_c["청산월"] = pd.to_datetime(df_pos_pnl_c["청산일"]).dt.to_period("M").astype(str)
+            df_pos_pnl_c["청산연도"] = pd.to_datetime(df_pos_pnl_c["청산일"]).dt.year.astype(str)
+
+            _us_years = sorted(df_pos_pnl_c["청산연도"].unique(), reverse=True)
+            _us_period_options = ["전체"] + _us_years
+            _cur_year = datetime.now().strftime("%Y")
+            _us_perf_year_idx = _us_period_options.index(_cur_year) if _cur_year in _us_period_options else 0
+            _us_sel_year = st.selectbox("기간 선택", _us_period_options, index=_us_perf_year_idx, key="us_perf_year")
+
+            if _us_sel_year == "전체":
+                _us_perf_df = df_pos_pnl_c
+                _us_sel_month_perf = None
+            else:
+                _us_year_df = df_pos_pnl_c[df_pos_pnl_c["청산연도"] == _us_sel_year]
+                _us_month_opts = ["연간 전체"] + sorted(_us_year_df["청산월"].unique(), reverse=True)
+                _cur_month = datetime.now().strftime("%Y-%m")
+                _us_perf_month_idx = _us_month_opts.index(_cur_month) if _cur_month in _us_month_opts else 0
+                _us_sel_month_perf = st.selectbox("월 선택", _us_month_opts, index=_us_perf_month_idx, key="us_perf_month")
+                if _us_sel_month_perf == "연간 전체":
+                    _us_perf_df = _us_year_df
+                    _us_sel_month_perf = None
+                else:
+                    _us_perf_df = _us_year_df[_us_year_df["청산월"] == _us_sel_month_perf]
+
+            _us_period_label = _us_sel_year if _us_sel_year != "전체" else "전체"
+            if _us_sel_month_perf:
+                _us_period_label = _us_sel_month_perf
+
+            def _render_kpi_cards_us(kpi):
+                c1, c2, c3 = st.columns(3)
+                c1.metric("총 실현손익 (비용차감)",
+                          f"${kpi[f'비용차감손익({_us_currency})']:+,.2f}",
+                          delta=f"거래비용 ${kpi[f'거래비용({_us_currency})']:,.2f}", delta_color="inverse")
+                c2.metric("종목 수", f"{kpi['종목수']}종목")
+                c3.metric("승/패", kpi["승/패"])
+                _pl_us = kpi["패배 평균목표손절률(%)"]
+                _al_us = kpi["패배 평균손실률(%)"]
+                if _pl_us != "-":
+                    _diff_us = _al_us - _pl_us
+                    _delta_us_txt = f"목표보다 {abs(_diff_us):.2f}%p 절약 ✓" if _diff_us > 0 else f"목표보다 {abs(_diff_us):.2f}%p 초과"
+                else:
+                    _delta_us_txt = None
+                c4, c5, c6 = st.columns(3)
+                c4.metric("승률", f"{kpi['승률(%)']:.1f}%")
+                c5.metric("승리 시 평균수익률", f"{kpi['승리 평균수익률(%)']:+.2f}%")
+                c6.metric("패배 시 평균손실률", f"{kpi['패배 평균손실률(%)']:+.2f}%",
+                          delta=_delta_us_txt, delta_color="normal")
+                c4b, c5b, c6b = st.columns(3)
+                c4b.metric("목표손절 위반 횟수", f"{kpi['목표손절 위반 횟수']}회")
+                c5b.metric("목표손절 위반율", f"{kpi['목표손절 위반율(%)']:.1f}%")
+                c6b.metric("패배 시 평균목표손절률", f"{_pl_us:.2f}%" if _pl_us != "-" else "-")
+                c7, c8, c9 = st.columns(3)
+                c7.metric("전체 평균수익률 (가중)", f"{kpi['전체 평균수익률(%)']:+.2f}%")
+                c8.metric("자산회전율", f"{kpi['자산회전율']:.2f}배" if kpi['자산회전율'] != "-" else "원금 미설정")
+                c9.metric("원금대비 실현수익률", f"{kpi['원금대비수익률(%)']:+.2f}%" if kpi['원금대비수익률(%)'] != "-" else "원금 미설정")
+                c10, c11, c12 = st.columns(3)
+                c10.metric("평균 RR", f"{kpi['평균RR']:.2f}" if kpi['평균RR'] != "-" else "-")
+                c11.metric("수익 시 평균보유기간", f"{kpi['수익시 평균보유일']:.0f}일" if kpi['수익시 평균보유일'] != "-" else "-")
+                c12.metric("손실 시 평균보유기간", f"{kpi['손실시 평균보유일']:.0f}일" if kpi['손실시 평균보유일'] != "-" else "-")
+
+            # ── 1. 성과분석 ──
+            if _us_perf_df.empty:
+                st.info(f"{_us_period_label} 기간에 청산된 종목이 없습니다.")
+            else:
+                st.subheader(f"1. 성과분석 ({_us_period_label})")
+                overall_us = _kpi_metrics_us(_us_perf_df)
+                _render_kpi_cards_us(overall_us)
 
             st.divider()
-            st.subheader("2. 종목별 성과분석")
-            _pos_pnl_color_map2 = {_pos_pnl_col: "red_positive", _pos_net_col: "red_positive", "수익률(%)": "red_positive", "비용차감수익률(%)": "red_positive"}
-            _pos_pnl_n = len(df_pos_pnl)
-            _pos_pnl_height = 250 if _pos_pnl_n <= 5 else (350 if _pos_pnl_n <= 10 else 450)
-            _aggrid(df_pos_pnl, key="us_position_pnl_table", height=_pos_pnl_height,
-                    click_nav=False, color_map=_pos_pnl_color_map2, pct_cols=["수익률(%)", "비용차감수익률(%)"], price_decimals=2)
+
+            # ── 2. 종목별 성과분석 ──
+            if not _us_perf_df.empty:
+                st.subheader(f"2. 종목별 성과분석 ({_us_period_label})")
+                _pos_pnl_color_map2 = {_pos_pnl_col: "red_positive", _pos_net_col: "red_positive", "수익률(%)": "red_positive", "비용차감수익률(%)": "red_positive"}
+                _pos_pnl_n = len(_us_perf_df)
+                _pos_pnl_height = 250 if _pos_pnl_n <= 5 else (350 if _pos_pnl_n <= 10 else 450)
+                _aggrid(_us_perf_df, key=f"us_position_pnl_table_{_us_period_label}", height=_pos_pnl_height,
+                        click_nav=False, color_map=_pos_pnl_color_map2, pct_cols=["수익률(%)", "비용차감수익률(%)"], price_decimals=2)
+
+            st.divider()
+
+            # ── 3. 진입근거별 성과분석 ──
+            if not _us_perf_df.empty:
+                st.subheader(f"3. 진입근거별 성과분석 ({_us_period_label})")
+            us_reason_rows = []
+            if "진입근거" in _us_perf_df.columns and not _us_perf_df.empty:
+                for prefix in ["PB", "HB", "BO"]:
+                    sub = _us_perf_df[_us_perf_df["진입근거"].str.startswith(prefix)]
+                    if sub.empty:
+                        continue
+                    row = _kpi_metrics_us(sub)
+                    us_reason_rows.append({"진입근거": prefix, **row})
+
+            if us_reason_rows:
+                df_reason_us = pd.DataFrame(us_reason_rows).reset_index(drop=True)
+                _reason_color_map_us = {
+                    "승리 평균수익률(%)": "red_positive",
+                    "패배 평균손실률(%)": "red_positive",
+                    "전체 평균수익률(%)": "red_positive",
+                    "원금대비수익률(%)":  "red_positive",
+                    f"총 실현손익({_us_currency})": "red_positive",
+                }
+                _aggrid(df_reason_us, key=f"us_reason_perf_table_{_us_period_label}", height=250,
+                        click_nav=False, color_map=_reason_color_map_us)
+            else:
+                st.info("진입근거별 데이터가 없습니다.")
+
+    # ── 월별 리뷰 ─────────────────────────────
+    with tab_review:
+        _us_review_df = get_realized_pnl()
+        if _us_review_df.empty:
+            st.info("실현 거래가 없습니다.")
+        else:
+            _us_review_c = _us_review_df.copy()
+            _us_review_c["월"] = pd.to_datetime(_us_review_c["날짜"]).dt.to_period("M").astype(str)
+            _us_months = sorted(_us_review_c["월"].unique(), reverse=True)
+            _us_sel_month = st.selectbox("월 선택", _us_months, key="us_review_month")
+
+            us_review = get_monthly_review(_us_sel_month)
+            if us_review.get("summary"):
+                s = us_review["summary"]
+
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("거래수", s["거래수"])
+                m2.metric("승률", f"{s['승률(%)']:.1f}%")
+                m3.metric("평균수익률", f"{s['평균수익률(%)']:+.2f}%")
+                m4.metric("총실현손익", f"${s['총실현손익(원)']:,.0f}")
+
+                m5, m6, m7, m8 = st.columns(4)
+                m5.metric("승리 평균", f"{s['승리 평균(%)']:+.2f}%")
+                m6.metric("패배 평균", f"{s['패배 평균(%)']:+.2f}%")
+                m7.metric("최대수익", f"{s['최대수익(%)']:+.2f}%")
+                m8.metric("최대손실", f"{s['최대손실(%)']:+.2f}%")
+
+                m9, m10 = st.columns(2)
+                m9.metric("평균보유일수", f"{s['평균보유일수']:.0f}일")
+                if s.get("평균RR") is not None:
+                    m10.metric("평균 RR", f"{s['평균RR']:.2f}")
+
+                st.divider()
+
+                if us_review["by_reason"]:
+                    st.subheader("진입근거별 분석")
+                    us_reason_rows = []
+                    for reason, stats in us_review["by_reason"].items():
+                        us_reason_rows.append({
+                            "진입근거": reason,
+                            "거래수": stats["거래수"],
+                            "승률(%)": stats["승률(%)"],
+                            "평균수익률(%)": stats["평균수익률(%)"],
+                            "승리 평균(%)": stats["승리 평균(%)"],
+                            "패배 평균(%)": stats["패배 평균(%)"],
+                            "최대수익(%)": stats["최대수익(%)"],
+                            "최대손실(%)": stats["최대손실(%)"],
+                            "평균보유일(일)": stats["평균보유일수"],
+                            "평균RR": stats.get("평균RR", ""),
+                            "총손익($)": stats["총실현손익(원)"],
+                        })
+                    us_reason_df = pd.DataFrame(us_reason_rows)
+                    _aggrid(
+                        us_reason_df,
+                        key="us_review_reason",
+                        height=min(250, 60 + len(us_reason_df) * 40),
+                        color_map={"평균수익률(%)": "red_positive", "승리 평균(%)": "red_positive", "패배 평균(%)": "red_positive", "총손익($)": "red_positive"},
+                        pct_cols=["승률(%)", "평균수익률(%)", "승리 평균(%)", "패배 평균(%)", "최대수익(%)", "최대손실(%)"],
+                        price_cols=["총손익($)"],
+                        price_decimals=2,
+                    )
+
+                st.divider()
+
+                st.subheader("개별 거래 내역")
+                us_trades = us_review["trades"]
+                _us_tcols = ["청산일", "종목명", "진입근거", "수익률(%)", "비용차감손익(원)", "거래비용(원)", "보유일수", "RR"]
+                _us_tshow = us_trades[[c for c in _us_tcols if c in us_trades.columns]]
+                _aggrid(
+                    _us_tshow,
+                    key="us_review_trades",
+                    height=min(400, 60 + len(_us_tshow) * 35),
+                    color_map={"수익률(%)": "red_positive", "비용차감손익(원)": "red_positive"},
+                    pct_cols=["수익률(%)"],
+                    price_cols=["비용차감손익(원)", "거래비용(원)"],
+                    price_decimals=2,
+                )
+            else:
+                st.info(f"{_us_sel_month}에 실현 거래가 없습니다.")
 
     # ── 거래 이력 ─────────────────────────────
     with tab_log:
@@ -1786,7 +3118,7 @@ def show_portfolio():
         return
 
     set_portfolio_file("portfolio.json")
-    tab_hold, tab_pnl, tab_perf, tab_log = st.tabs(["📋 보유 현황", "📊 거래별 성과분석", "📊 종목별 성과분석", "📜 거래 이력"])
+    tab_hold, tab_pnl, tab_perf, tab_review, tab_log = st.tabs(["📋 보유 현황", "📊 거래별 성과분석", "📊 종목별 성과분석", "📅 월별 리뷰", "📜 거래 이력"])
 
     # ── 보유 현황 ─────────────────────────────
     with tab_hold:
@@ -1906,16 +3238,17 @@ def show_portfolio():
                                   key="buy_reason_type_outer", on_change=_on_reason_change)
             _is_bo = st.session_state.get("buy_reason_type_outer", "PB") == "BO"
 
-            with st.form("buy_form", clear_on_submit=True):
+            with st.form("buy_form", clear_on_submit=False):
                 c1, c2, c3 = st.columns(3)
                 buy_ticker = c1.text_input("종목코드", key="buy_ticker").strip()
                 buy_name   = c2.text_input("종목명",   key="buy_name").strip()
                 buy_date   = c3.date_input("매수일", value=datetime.now().date(), key="buy_date")
 
-                c4, c5, c6 = st.columns(3)
+                c4, c5, c6, c7 = st.columns(4)
                 buy_price  = c4.number_input("매수가 (원)", min_value=0, step=100, key="buy_price")
                 buy_qty    = c5.number_input("수량 (주)",   min_value=1, step=1,   key="buy_qty")
                 buy_stop   = c6.number_input("손절가 (원)", min_value=0, step=100, key="buy_stop")
+                buy_tp     = c7.number_input("1차익절가 (원)", min_value=0, step=100, key="buy_tp")
 
                 if _is_bo:
                     buy_memo = st.text_input("메모", key="buy_memo")
@@ -1936,9 +3269,14 @@ def show_portfolio():
                             date=buy_date.strftime("%Y-%m-%d"),
                             price=buy_price, quantity=int(buy_qty),
                             stop_loss=buy_stop, entry_reason=entry_reason, memo=buy_memo,
+                            take_profit=buy_tp,
                         )
                         st.session_state["portfolio_toast"] = (f"✅ {buy_name} 매수 저장 완료!", "success")
-                        st.session_state["buy_expander_open"] = False
+                        st.session_state["buy_expander_open"] = True
+                        # 폼 필드 초기화 (다음 입력 준비)
+                        for k in ["buy_ticker", "buy_name", "buy_price", "buy_qty", "buy_stop", "buy_tp", "buy_memo", "buy_stock_search"]:
+                            if k in st.session_state:
+                                del st.session_state[k]
                         st.rerun()
 
         # ── 매도 입력 ──
@@ -2009,6 +3347,31 @@ def show_portfolio():
                     else:
                         update_stop_loss(pos_id2, sl_date.strftime("%Y-%m-%d"), sl_price, sl_note)
                         st.session_state["portfolio_toast"] = ("✅ 손절가 수정 완료!", "success")
+                        st.rerun()
+
+        # ── 1차 익절가 수정 ──
+        with st.expander("✏️ 1차 익절가 수정"):
+            df_pos_tp_kr = get_open_positions()
+            if df_pos_tp_kr.empty:
+                st.info("보유 중인 종목이 없습니다.")
+            else:
+                _tp_choices_kr = {
+                    f"{r['종목명']} ({r['종목코드']}) — 현재 익절가 {r['1차익절가']:,.0f}원" if r['1차익절가'] else
+                    f"{r['종목명']} ({r['종목코드']}) — 미설정": r["position_id"]
+                    for _, r in df_pos_tp_kr.iterrows()
+                }
+                with st.form("kr_tp_form"):
+                    _tp_sel_kr = st.selectbox("종목 선택", list(_tp_choices_kr.keys()), key="kr_tp_sel")
+                    _tp_pos_id_kr = _tp_choices_kr[_tp_sel_kr]
+                    _tp_price_kr = st.number_input("1차 익절가 (원)", min_value=0, step=100, key="kr_tp_price")
+                    _kr_tp_submitted = st.form_submit_button("✅ 익절가 저장", type="primary")
+
+                if _kr_tp_submitted:
+                    if _tp_price_kr <= 0:
+                        st.error("1차 익절가를 입력해주세요.")
+                    else:
+                        update_take_profit(_tp_pos_id_kr, _tp_price_kr)
+                        st.session_state["portfolio_toast"] = ("✅ 1차 익절가 수정 완료!", "success")
                         st.rerun()
 
         # ── 거래 내역 수정/삭제 ──
@@ -2148,93 +3511,167 @@ def show_portfolio():
         if df_pnl.empty:
             st.info("실현된 손익이 없습니다. 매도 후 확인하세요.")
         else:
-            n      = len(df_pnl)
-            wins   = df_pnl[df_pnl["수익률(%)"] > 0]
-            losses = df_pnl[df_pnl["수익률(%)"] <= 0]
-            win_rate  = len(wins) / n * 100 if n > 0 else 0
-            avg_win   = wins["수익률(%)"].mean()   if len(wins)   > 0 else 0
-            avg_loss  = losses["수익률(%)"].mean() if len(losses) > 0 else 0
-            avg_ret   = df_pnl["수익률(%)"].mean()
-            avg_planned_loss = losses["목표손절률(%)"].dropna().mean() if len(losses) > 0 else None
-            # 목표손절 위반: 실제 손실이 목표손절률보다 더 큰 경우
-            losses_with_target = losses.dropna(subset=["목표손절률(%)"])
-            violations = losses_with_target[losses_with_target["수익률(%)"] < losses_with_target["목표손절률(%)"]]
-            n_violations  = len(violations)
-            violation_rate = n_violations / len(losses_with_target) * 100 if len(losses_with_target) > 0 else 0
-            total_inv  = (df_pnl["평균매수가"] * df_pnl["수량"]).sum()
-            total_pnl  = df_pnl["실현손익(원)"].sum()
-            total_fees = df_pnl["거래비용(원)"].sum() if "거래비용(원)" in df_pnl.columns else 0
-            total_net  = df_pnl["비용차감손익(원)"].sum() if "비용차감손익(원)" in df_pnl.columns else total_pnl
+            df_pnl["_buy_cost"] = df_pnl["평균매수가"] * df_pnl["수량"]
+            df_pnl["_월"] = pd.to_datetime(df_pnl["날짜"]).dt.to_period("M").astype(str)
+            df_pnl["_연도"] = pd.to_datetime(df_pnl["날짜"]).dt.year.astype(str)
 
-            initial_capital = get_total_capital()
-            turnover = total_inv / initial_capital if initial_capital > 0 else None
-            adj_ret  = avg_ret * turnover if turnover is not None else None
+            _pnl_years = sorted(df_pnl["_연도"].unique(), reverse=True)
+            _pnl_period_opts = ["전체"] + _pnl_years
+            _cur_year = datetime.now().strftime("%Y")
+            _pnl_year_idx = _pnl_period_opts.index(_cur_year) if _cur_year in _pnl_period_opts else 0
+            _pnl_sel_year = st.selectbox("기간 선택", _pnl_period_opts, index=_pnl_year_idx, key="kr_pnl_year")
 
-            # KPI 요약
-            c1, c2, c3 = st.columns(3)
-            c1.metric("총 실현손익 (비용차감)", f"{total_net:+,.0f}원",
-                      delta=f"거래비용 {total_fees:,.0f}원", delta_color="inverse")
-            c2.metric("거래 건수",         f"{n}건")
-            c3.metric("승/패",             f"{len(wins)}승 {len(losses)}패")
-
-            c4, c5, c6 = st.columns(3)
-            c4.metric("승률",              f"{win_rate:.1f}%")
-            c5.metric("승리 시 평균수익률", f"{avg_win:+.2f}%")
-            if avg_planned_loss is not None:
-                _diff1 = avg_loss - avg_planned_loss
-                _delta1_txt = f"목표보다 {abs(_diff1):.2f}%p 절약 ✓" if _diff1 > 0 else f"목표보다 {abs(_diff1):.2f}%p 초과"
+            if _pnl_sel_year == "전체":
+                _pnl_filtered = df_pnl
+                _pnl_sel_month = None
             else:
-                _delta1_txt = None
-            c6.metric("패배 시 평균손실률", f"{avg_loss:+.2f}%",
-                      delta=_delta1_txt, delta_color="normal")
+                _pnl_year_df = df_pnl[df_pnl["_연도"] == _pnl_sel_year]
+                _pnl_month_opts = ["연간 전체"] + sorted(_pnl_year_df["_월"].unique(), reverse=True)
+                _cur_month = datetime.now().strftime("%Y-%m")
+                _pnl_month_idx = _pnl_month_opts.index(_cur_month) if _cur_month in _pnl_month_opts else 0
+                _pnl_sel_month = st.selectbox("월 선택", _pnl_month_opts, index=_pnl_month_idx, key="kr_pnl_month")
+                if _pnl_sel_month == "연간 전체":
+                    _pnl_filtered = _pnl_year_df
+                    _pnl_sel_month = None
+                else:
+                    _pnl_filtered = _pnl_year_df[_pnl_year_df["_월"] == _pnl_sel_month]
 
-            c4b, c5b, c6b = st.columns(3)
-            c4b.metric("목표손절 위반 횟수", f"{n_violations}회")
-            c5b.metric("목표손절 위반율",    f"{violation_rate:.1f}%")
-            c6b.metric("패배 시 평균목표손절률",
-                       f"{avg_planned_loss:.2f}%" if avg_planned_loss is not None else "-")
+            _pnl_label = _pnl_sel_year if _pnl_sel_year != "전체" else "전체"
+            if _pnl_sel_month:
+                _pnl_label = _pnl_sel_month
 
-            rr_vals  = df_pnl["RR"].dropna()
-            avg_rr   = rr_vals.mean() if len(rr_vals) > 0 else None
+            def _render_trade_kpi(df_sub, currency="원"):
+                n = len(df_sub)
+                if n == 0:
+                    st.info("해당 기간에 거래가 없습니다.")
+                    return
+                wins = df_sub[df_sub["수익률(%)"] > 0]
+                losses = df_sub[df_sub["수익률(%)"] <= 0]
+                win_rate = len(wins) / n * 100
+                avg_planned_loss = losses["목표손절률(%)"].dropna().mean() if len(losses) > 0 else None
+                losses_wt = losses.dropna(subset=["목표손절률(%)"])
+                violations = losses_wt[losses_wt["수익률(%)"] < losses_wt["목표손절률(%)"]]
+                n_violations = len(violations)
+                violation_rate = n_violations / len(losses_wt) * 100 if len(losses_wt) > 0 else 0
+                total_inv = df_sub["_buy_cost"].sum()
+                total_pnl = df_sub["실현손익(원)"].sum()
+                total_fees = df_sub["거래비용(원)"].sum() if "거래비용(원)" in df_sub.columns else 0
+                total_net = df_sub["비용차감손익(원)"].sum() if "비용차감손익(원)" in df_sub.columns else total_pnl
+                _w_wins = wins["수익률(%)"].values * wins["_buy_cost"].values if len(wins) > 0 else []
+                _w_losses = losses["수익률(%)"].values * losses["_buy_cost"].values if len(losses) > 0 else []
+                avg_win = _w_wins.sum() / wins["_buy_cost"].sum() if len(wins) > 0 and wins["_buy_cost"].sum() > 0 else 0
+                avg_loss = _w_losses.sum() / losses["_buy_cost"].sum() if len(losses) > 0 and losses["_buy_cost"].sum() > 0 else 0
+                avg_ret = (df_sub["수익률(%)"].values * df_sub["_buy_cost"].values).sum() / df_sub["_buy_cost"].sum() if df_sub["_buy_cost"].sum() > 0 else 0
+                initial_capital = get_total_capital()
+                turnover = total_inv / initial_capital if initial_capital > 0 else None
+                capital_ret = (total_pnl / initial_capital * 100) if initial_capital > 0 else None
+                rr_vals = df_sub["RR"].dropna()
+                avg_rr = rr_vals.mean() if len(rr_vals) > 0 else None
+                avg_hold_win = wins["보유일수"].dropna().mean() if len(wins) > 0 else None
+                avg_hold_loss = losses["보유일수"].dropna().mean() if len(losses) > 0 else None
 
-            c7, c8, c9 = st.columns(3)
-            c7.metric("전체 평균수익률",    f"{avg_ret:+.2f}%")
-            c8.metric("자산회전율",
-                      f"{turnover:.2f}배" if turnover is not None else "원금 미설정")
-            c9.metric("회전율 감안 수익률",
-                      f"{adj_ret:+.2f}%" if adj_ret is not None else "원금 미설정")
+                c1, c2, c3 = st.columns(3)
+                c1.metric(f"총 실현손익 (비용차감)", f"{total_net:+,.0f}{currency}",
+                          delta=f"거래비용 {total_fees:,.0f}{currency}", delta_color="inverse")
+                c2.metric("거래 건수", f"{n}건")
+                c3.metric("승/패", f"{len(wins)}승 {len(losses)}패")
+                c4, c5, c6 = st.columns(3)
+                c4.metric("승률", f"{win_rate:.1f}%")
+                c5.metric("승리 시 평균수익률", f"{avg_win:+.2f}%")
+                if avg_planned_loss is not None:
+                    _diff1 = avg_loss - avg_planned_loss
+                    _delta1_txt = f"목표보다 {abs(_diff1):.2f}%p 절약 ✓" if _diff1 > 0 else f"목표보다 {abs(_diff1):.2f}%p 초과"
+                else:
+                    _delta1_txt = None
+                c6.metric("패배 시 평균손실률", f"{avg_loss:+.2f}%",
+                          delta=_delta1_txt, delta_color="normal")
+                c4b, c5b, c6b = st.columns(3)
+                c4b.metric("목표손절 위반 횟수", f"{n_violations}회")
+                c5b.metric("목표손절 위반율", f"{violation_rate:.1f}%")
+                c6b.metric("패배 시 평균목표손절률", f"{avg_planned_loss:.2f}%" if avg_planned_loss is not None else "-")
+                c7, c8, c9 = st.columns(3)
+                c7.metric("전체 평균수익률 (가중)", f"{avg_ret:+.2f}%")
+                c8.metric("자산회전율", f"{turnover:.2f}배" if turnover is not None else "원금 미설정")
+                c9.metric("원금대비 실현수익률", f"{capital_ret:+.2f}%" if capital_ret is not None else "원금 미설정")
+                c10, c11, c12 = st.columns(3)
+                c10.metric("평균 RR", f"{avg_rr:.2f}" if avg_rr is not None else "-")
+                c11.metric("수익 시 평균보유기간", f"{avg_hold_win:.0f}일" if avg_hold_win is not None else "-")
+                c12.metric("손실 시 평균보유기간", f"{avg_hold_loss:.0f}일" if avg_hold_loss is not None else "-")
 
-            # 보유기간 KPI
-            hold_vals      = df_pnl["보유일수"].dropna()
-            win_hold_vals  = df_pnl[df_pnl["수익률(%)"] > 0]["보유일수"].dropna()
-            loss_hold_vals = df_pnl[df_pnl["수익률(%)"] <= 0]["보유일수"].dropna()
-            avg_hold_win   = win_hold_vals.mean()  if len(win_hold_vals)  > 0 else None
-            avg_hold_loss  = loss_hold_vals.mean() if len(loss_hold_vals) > 0 else None
+            _render_trade_kpi(_pnl_filtered)
 
-            c10, c11, c12 = st.columns(3)
-            c10.metric("평균 RR (손절가 대비)",
-                       f"{avg_rr:.2f}" if avg_rr is not None else "-")
-            c11.metric("수익 시 평균보유기간",
-                       f"{avg_hold_win:.0f}일" if avg_hold_win is not None else "-")
-            c12.metric("손실 시 평균보유기간",
-                       f"{avg_hold_loss:.0f}일" if avg_hold_loss is not None else "-")
+            # ── 월별 KPI 비교표 (전체/연간 선택 시) ──
+            if not _pnl_sel_month and len(_pnl_filtered) > 0:
+                _months_in_range = sorted(_pnl_filtered["_월"].unique())
+                if len(_months_in_range) > 1:
+                    st.divider()
+                    st.subheader(f"월별 KPI 비교 ({_pnl_label})")
+                    _monthly_kpi_rows = []
+                    _init_cap = get_total_capital()
+                    for _m in _months_in_range:
+                        _m_df = _pnl_filtered[_pnl_filtered["_월"] == _m]
+                        _mn = len(_m_df)
+                        if _mn == 0:
+                            continue
+                        _mw = _m_df[_m_df["수익률(%)"] > 0]
+                        _ml = _m_df[_m_df["수익률(%)"] <= 0]
+                        _m_bc = _m_df["_buy_cost"].sum()
+                        _m_avg_win = (_mw["수익률(%)"].values * (_mw["평균매수가"] * _mw["수량"]).values).sum() / (_mw["평균매수가"] * _mw["수량"]).sum() if len(_mw) > 0 and (_mw["평균매수가"] * _mw["수량"]).sum() > 0 else 0
+                        _m_avg_loss = (_ml["수익률(%)"].values * (_ml["평균매수가"] * _ml["수량"]).values).sum() / (_ml["평균매수가"] * _ml["수량"]).sum() if len(_ml) > 0 and (_ml["평균매수가"] * _ml["수량"]).sum() > 0 else 0
+                        _m_avg = (_m_df["수익률(%)"].values * _m_df["_buy_cost"].values).sum() / _m_bc if _m_bc > 0 else 0
+                        _m_pnl = _m_df["실현손익(원)"].sum()
+                        _m_fees = _m_df["거래비용(원)"].sum() if "거래비용(원)" in _m_df.columns else 0
+                        _m_net = _m_df["비용차감손익(원)"].sum() if "비용차감손익(원)" in _m_df.columns else _m_pnl
+                        _m_rr = _m_df["RR"].dropna().mean() if _m_df["RR"].dropna().any() else None
+                        _m_planned = _ml["목표손절률(%)"].dropna().mean() if len(_ml) > 0 else None
+                        _m_lwt = _ml.dropna(subset=["목표손절률(%)"])
+                        _m_viols = len(_m_lwt[_m_lwt["수익률(%)"] < _m_lwt["목표손절률(%)"]]) if len(_m_lwt) > 0 else 0
+                        _m_viol_rate = _m_viols / len(_m_lwt) * 100 if len(_m_lwt) > 0 else 0
+                        _m_turnover = _m_bc / _init_cap if _init_cap > 0 else None
+                        _m_cap_ret = (_m_pnl / _init_cap * 100) if _init_cap > 0 else None
+                        _m_hold_win = _mw["보유일수"].dropna().mean() if len(_mw) > 0 else None
+                        _m_hold_loss = _ml["보유일수"].dropna().mean() if len(_ml) > 0 else None
+                        _monthly_kpi_rows.append({
+                            "월": _m,
+                            "거래수": _mn,
+                            "승/패": f"{len(_mw)}/{len(_ml)}",
+                            "승률(%)": round(len(_mw) / _mn * 100, 1),
+                            "승리평균(%)": round(_m_avg_win, 2),
+                            "패배평균(%)": round(_m_avg_loss, 2),
+                            "전체평균(%)": round(_m_avg, 2),
+                            "평균RR": round(_m_rr, 2) if _m_rr is not None else None,
+                            "손절위반": _m_viols,
+                            "위반율(%)": round(_m_viol_rate, 1),
+                            "회전율": round(_m_turnover, 2) if _m_turnover is not None else None,
+                            "원금대비(%)": round(_m_cap_ret, 2) if _m_cap_ret is not None else None,
+                            "승리보유일": round(_m_hold_win, 0) if _m_hold_win is not None else None,
+                            "손실보유일": round(_m_hold_loss, 0) if _m_hold_loss is not None else None,
+                            "비용차감손익(원)": int(_m_net),
+                        })
+                    if _monthly_kpi_rows:
+                        _mkpi_df = pd.DataFrame(_monthly_kpi_rows)
+                        _aggrid(_mkpi_df, key=f"kr_monthly_kpi_compare_{_pnl_label}", height=min(300, 60 + len(_mkpi_df) * 40),
+                                color_map={"전체평균(%)": "red_positive", "승리평균(%)": "red_positive", "패배평균(%)": "red_positive", "비용차감손익(원)": "red_positive", "원금대비(%)": "red_positive"},
+                                pct_cols=["승률(%)", "승리평균(%)", "패배평균(%)", "전체평균(%)", "위반율(%)", "원금대비(%)"],
+                                price_cols=["비용차감손익(원)"])
 
             st.divider()
 
             _pnl_color_map = {"실현손익(원)": "red_positive", "비용차감손익(원)": "red_positive", "수익률(%)": "red_positive", "비용차감수익률(%)": "red_positive"}
-            _aggrid(df_pnl, key="trade_pnl_table", height=450, click_nav=False, color_map=_pnl_color_map, pct_cols=["수익률(%)", "비용차감수익률(%)"])
+            _aggrid(_pnl_filtered, key=f"trade_pnl_table_{_pnl_label}", height=450, click_nav=False, color_map=_pnl_color_map, pct_cols=["수익률(%)", "비용차감수익률(%)"])
 
             st.divider()
 
             # ── 누적 수익 곡선 ──
-            st.subheader("누적 수익 곡선")
-            _render_equity_curve()
+            st.subheader(f"누적 수익 곡선 ({_pnl_label})")
+            _render_equity_curve(source_df=_pnl_filtered)
 
             st.divider()
 
-            # ── 월별 성과 ──
-            st.subheader("월별 성과")
-            _render_monthly_performance()
+            # ── 월별 성과 (전체/연간 선택 시만 표시, 월별 선택 시 불필요) ──
+            if not _pnl_sel_month:
+                st.subheader(f"월별 성과 ({_pnl_label})")
+                _render_monthly_performance(source_df=_pnl_filtered)
 
     # ── 종목별 성과분석 ───────────────────────
     with tab_perf:
@@ -2253,16 +3690,23 @@ def show_portfolio():
                 total_pnl  = df_sub["실현손익(원)"].sum()
                 total_fees = df_sub["거래비용(원)"].sum() if "거래비용(원)" in df_sub.columns else 0
                 total_net  = df_sub["비용차감손익(원)"].sum() if "비용차감손익(원)" in df_sub.columns else total_pnl
-                avg_win   = wins["수익률(%)"].mean()   if len(wins)   > 0 else 0
-                avg_loss  = losses["수익률(%)"].mean() if len(losses) > 0 else 0
-                avg_ret   = df_sub["수익률(%)"].mean()
+                # 금액 가중 평균수익률
+                df_sub = df_sub.copy()
+                df_sub["_buy_cost"] = df_sub["평균매수가"] * df_sub["청산수량"]
+                _bc_total = df_sub["_buy_cost"].sum()
+                wins_bc   = wins["평균매수가"] * wins["청산수량"] if len(wins) > 0 else None
+                losses_bc = losses["평균매수가"] * losses["청산수량"] if len(losses) > 0 else None
+                avg_win   = (wins["수익률(%)"].values * wins_bc.values).sum() / wins_bc.sum()       if wins_bc is not None and wins_bc.sum() > 0   else 0
+                avg_loss  = (losses["수익률(%)"].values * losses_bc.values).sum() / losses_bc.sum() if losses_bc is not None and losses_bc.sum() > 0 else 0
+                avg_ret   = (df_sub["수익률(%)"].values * df_sub["_buy_cost"].values).sum() / _bc_total if _bc_total > 0 else 0
                 avg_planned_loss_p = losses["목표손절률(%)"].dropna().mean() if len(losses) > 0 else None
                 losses_wt = losses.dropna(subset=["목표손절률(%)"])
                 viols = losses_wt[losses_wt["수익률(%)"] < losses_wt["목표손절률(%)"]]
                 n_viols    = len(viols)
                 viol_rate  = n_viols / len(losses_wt) * 100 if len(losses_wt) > 0 else 0
-                turnover  = total_inv / initial_capital_p if initial_capital_p > 0 else None
-                adj_ret   = avg_ret * turnover if turnover is not None else None
+                turnover    = total_inv / initial_capital_p if initial_capital_p > 0 else None
+                adj_ret     = avg_ret * turnover if turnover is not None else None
+                capital_ret = (total_pnl / initial_capital_p * 100) if initial_capital_p > 0 else None
                 avg_rr    = df_sub["RR"].dropna().mean() if df_sub["RR"].dropna().any() else None
                 avg_hold_win  = wins["보유일수"].dropna().mean()   if len(wins)   > 0 else None
                 avg_hold_loss = losses["보유일수"].dropna().mean() if len(losses) > 0 else None
@@ -2277,7 +3721,7 @@ def show_portfolio():
                     "목표손절 위반율(%)":    round(viol_rate, 1),
                     "전체 평균수익률(%)":   round(avg_ret,  2),
                     "자산회전율":          round(turnover, 2) if turnover is not None else "-",
-                    "회전율감안수익률(%)":  round(adj_ret, 2) if adj_ret is not None else "-",
+                    "원금대비수익률(%)":    round(capital_ret, 2) if capital_ret is not None else "-",
                     "평균RR":              round(avg_rr, 2) if avg_rr is not None else "-",
                     "수익시 평균보유일":    round(avg_hold_win,  0) if avg_hold_win  is not None else "-",
                     "손실시 평균보유일":    round(avg_hold_loss, 0) if avg_hold_loss is not None else "-",
@@ -2286,66 +3730,95 @@ def show_portfolio():
                     "비용차감손익(원)":     round(total_net),
                 }
 
-            # ── 1. 전체 성과분석 ──
-            st.subheader("1. 전체 성과분석")
-            overall = _kpi_metrics(df_pos_pnl)
-            wins_p   = df_pos_pnl[df_pos_pnl["수익률(%)"] > 0]
-            losses_p = df_pos_pnl[df_pos_pnl["수익률(%)"] <= 0]
-            c1, c2, c3 = st.columns(3)
-            c1.metric("총 실현손익 (비용차감)", f"{overall['비용차감손익(원)']:+,.0f}원",
-                      delta=f"거래비용 {overall['거래비용(원)']:,.0f}원", delta_color="inverse")
-            c2.metric("종목 수",            f"{overall['종목수']}종목")
-            c3.metric("승/패",              overall["승/패"])
-            _pl = overall["패배 평균목표손절률(%)"]
-            _al = overall["패배 평균손실률(%)"]
-            if _pl != "-":
-                _diff2 = _al - _pl
-                _delta2_txt = f"목표보다 {abs(_diff2):.2f}%p 절약 ✓" if _diff2 > 0 else f"목표보다 {abs(_diff2):.2f}%p 초과"
+            # ── 기간 선택 ──
+            df_pos_pnl_c = df_pos_pnl.copy()
+            df_pos_pnl_c["청산월"] = pd.to_datetime(df_pos_pnl_c["청산일"]).dt.to_period("M").astype(str)
+            df_pos_pnl_c["청산연도"] = pd.to_datetime(df_pos_pnl_c["청산일"]).dt.year.astype(str)
+
+            _years = sorted(df_pos_pnl_c["청산연도"].unique(), reverse=True)
+            _period_options = ["전체"] + _years
+            _cur_year = datetime.now().strftime("%Y")
+            _perf_year_idx = _period_options.index(_cur_year) if _cur_year in _period_options else 0
+            _sel_year = st.selectbox("기간 선택", _period_options, index=_perf_year_idx, key="kr_perf_year")
+
+            if _sel_year == "전체":
+                _perf_df = df_pos_pnl_c
+                _sel_month_perf = None
             else:
-                _delta2_txt = None
+                _year_df = df_pos_pnl_c[df_pos_pnl_c["청산연도"] == _sel_year]
+                _month_options = ["연간 전체"] + sorted(_year_df["청산월"].unique(), reverse=True)
+                _cur_month = datetime.now().strftime("%Y-%m")
+                _perf_month_idx = _month_options.index(_cur_month) if _cur_month in _month_options else 0
+                _sel_month_perf = st.selectbox("월 선택", _month_options, index=_perf_month_idx, key="kr_perf_month")
+                if _sel_month_perf == "연간 전체":
+                    _perf_df = _year_df
+                    _sel_month_perf = None
+                else:
+                    _perf_df = _year_df[_year_df["청산월"] == _sel_month_perf]
 
-            c4, c5, c6 = st.columns(3)
-            c4.metric("승률",               f"{overall['승률(%)']:.1f}%")
-            c5.metric("승리 시 평균수익률",  f"{overall['승리 평균수익률(%)']:+.2f}%")
-            c6.metric("패배 시 평균손실률",  f"{overall['패배 평균손실률(%)']:+.2f}%",
-                      delta=_delta2_txt, delta_color="normal")
+            _period_label = _sel_year if _sel_year != "전체" else "전체"
+            if _sel_month_perf:
+                _period_label = _sel_month_perf
 
-            c4b, c5b, c6b = st.columns(3)
-            c4b.metric("목표손절 위반 횟수", f"{overall['목표손절 위반 횟수']}회")
-            c5b.metric("목표손절 위반율",    f"{overall['목표손절 위반율(%)']:.1f}%")
-            c6b.metric("패배 시 평균목표손절률",
-                       f"{_pl:.2f}%" if _pl != "-" else "-")
-            c7, c8, c9 = st.columns(3)
-            c7.metric("전체 평균수익률",     f"{overall['전체 평균수익률(%)']:+.2f}%")
-            c8.metric("자산회전율",
-                      f"{overall['자산회전율']:.2f}배" if overall['자산회전율'] != "-" else "원금 미설정")
-            c9.metric("회전율 감안 수익률",
-                      f"{overall['회전율감안수익률(%)']:+.2f}%" if overall['회전율감안수익률(%)'] != "-" else "원금 미설정")
-            c10, c11, c12 = st.columns(3)
-            c10.metric("평균 RR",
-                       f"{overall['평균RR']:.2f}" if overall['평균RR'] != "-" else "-")
-            c11.metric("수익 시 평균보유기간",
-                       f"{overall['수익시 평균보유일']:.0f}일" if overall['수익시 평균보유일'] != "-" else "-")
-            c12.metric("손실 시 평균보유기간",
-                       f"{overall['손실시 평균보유일']:.0f}일" if overall['손실시 평균보유일'] != "-" else "-")
+            def _render_kpi_cards(kpi, currency="원"):
+                """KPI 카드 렌더링"""
+                c1, c2, c3 = st.columns(3)
+                c1.metric("총 실현손익 (비용차감)", f"{kpi['비용차감손익(원)']:+,.0f}{currency}",
+                          delta=f"거래비용 {kpi['거래비용(원)']:,.0f}{currency}", delta_color="inverse")
+                c2.metric("종목 수", f"{kpi['종목수']}종목")
+                c3.metric("승/패", kpi["승/패"])
+                _pl = kpi["패배 평균목표손절률(%)"]
+                _al = kpi["패배 평균손실률(%)"]
+                if _pl != "-":
+                    _diff2 = _al - _pl
+                    _delta2_txt = f"목표보다 {abs(_diff2):.2f}%p 절약 ✓" if _diff2 > 0 else f"목표보다 {abs(_diff2):.2f}%p 초과"
+                else:
+                    _delta2_txt = None
+                c4, c5, c6 = st.columns(3)
+                c4.metric("승률", f"{kpi['승률(%)']:.1f}%")
+                c5.metric("승리 시 평균수익률", f"{kpi['승리 평균수익률(%)']:+.2f}%")
+                c6.metric("패배 시 평균손실률", f"{kpi['패배 평균손실률(%)']:+.2f}%",
+                          delta=_delta2_txt, delta_color="normal")
+                c4b, c5b, c6b = st.columns(3)
+                c4b.metric("목표손절 위반 횟수", f"{kpi['목표손절 위반 횟수']}회")
+                c5b.metric("목표손절 위반율", f"{kpi['목표손절 위반율(%)']:.1f}%")
+                c6b.metric("패배 시 평균목표손절률", f"{_pl:.2f}%" if _pl != "-" else "-")
+                c7, c8, c9 = st.columns(3)
+                c7.metric("전체 평균수익률 (가중)", f"{kpi['전체 평균수익률(%)']:+.2f}%")
+                c8.metric("자산회전율", f"{kpi['자산회전율']:.2f}배" if kpi['자산회전율'] != "-" else "원금 미설정")
+                c9.metric("원금대비 실현수익률", f"{kpi['원금대비수익률(%)']:+.2f}%" if kpi['원금대비수익률(%)'] != "-" else "원금 미설정")
+                c10, c11, c12 = st.columns(3)
+                c10.metric("평균 RR", f"{kpi['평균RR']:.2f}" if kpi['평균RR'] != "-" else "-")
+                c11.metric("수익 시 평균보유기간", f"{kpi['수익시 평균보유일']:.0f}일" if kpi['수익시 평균보유일'] != "-" else "-")
+                c12.metric("손실 시 평균보유기간", f"{kpi['손실시 평균보유일']:.0f}일" if kpi['손실시 평균보유일'] != "-" else "-")
+
+            # ── 1. 성과분석 ──
+            if _perf_df.empty:
+                st.info(f"{_period_label} 기간에 청산된 종목이 없습니다.")
+            else:
+                st.subheader(f"1. 성과분석 ({_period_label})")
+                overall = _kpi_metrics(_perf_df)
+                _render_kpi_cards(overall)
 
             st.divider()
 
             # ── 2. 종목별 성과분석 ──
-            st.subheader("2. 종목별 성과분석")
-            _pos_pnl_color_map = {"실현손익(원)": "red_positive", "비용차감손익(원)": "red_positive", "수익률(%)": "red_positive", "비용차감수익률(%)": "red_positive"}
-            _pos_pnl_n = len(df_pos_pnl)
-            _pos_pnl_height = 250 if _pos_pnl_n <= 5 else (350 if _pos_pnl_n <= 10 else 450)
-            _aggrid(df_pos_pnl, key="position_pnl_table", height=_pos_pnl_height,
-                    click_nav=False, color_map=_pos_pnl_color_map, pct_cols=["수익률(%)", "비용차감수익률(%)"])
+            if not _perf_df.empty:
+                st.subheader(f"2. 종목별 성과분석 ({_period_label})")
+                _pos_pnl_color_map = {"실현손익(원)": "red_positive", "비용차감손익(원)": "red_positive", "수익률(%)": "red_positive", "비용차감수익률(%)": "red_positive"}
+                _pos_pnl_n = len(_perf_df)
+                _pos_pnl_height = 250 if _pos_pnl_n <= 5 else (350 if _pos_pnl_n <= 10 else 450)
+                _aggrid(_perf_df, key=f"position_pnl_table_{_period_label}", height=_pos_pnl_height,
+                        click_nav=False, color_map=_pos_pnl_color_map, pct_cols=["수익률(%)", "비용차감수익률(%)"])
 
             st.divider()
 
             # ── 3. 진입근거별 성과분석 ──
-            st.subheader("3. 진입근거별 성과분석")
+            if not _perf_df.empty:
+                st.subheader(f"3. 진입근거별 성과분석 ({_period_label})")
             reason_rows = []
             for prefix in ["PB", "HB", "BO"]:
-                sub = df_pos_pnl[df_pos_pnl["진입근거"].str.startswith(prefix)]
+                sub = _perf_df[_perf_df["진입근거"].str.startswith(prefix)] if not _perf_df.empty else pd.DataFrame()
                 if sub.empty:
                     continue
                 row = _kpi_metrics(sub)
@@ -2357,9 +3830,10 @@ def show_portfolio():
                     "승리 평균수익률(%)": "red_positive",
                     "패배 평균손실률(%)": "red_positive",
                     "전체 평균수익률(%)": "red_positive",
+                    "원금대비수익률(%)":  "red_positive",
                     "총 실현손익(원)":    "red_positive",
                 }
-                _aggrid(df_reason, key="reason_perf_table", height=250,
+                _aggrid(df_reason, key=f"reason_perf_table_{_period_label}", height=250,
                         click_nav=False, color_map=_reason_color_map)
             else:
                 st.info("진입근거별 데이터가 없습니다.")
@@ -2375,6 +3849,84 @@ def show_portfolio():
             # ── 5. 월별 성과 ──
             st.subheader("5. 월별 성과")
             _render_monthly_performance(source_df=df_pos_pnl, date_col="청산일")
+
+    # ── 월별 리뷰 ─────────────────────────────
+    with tab_review:
+        _review_df = get_realized_pnl()
+        if _review_df.empty:
+            st.info("실현 거래가 없습니다.")
+        else:
+            _review_df_c = _review_df.copy()
+            _review_df_c["월"] = pd.to_datetime(_review_df_c["날짜"]).dt.to_period("M").astype(str)
+            _months = sorted(_review_df_c["월"].unique(), reverse=True)
+            _sel_month = st.selectbox("월 선택", _months, key="kr_review_month")
+
+            review = get_monthly_review(_sel_month)
+            if review.get("summary"):
+                s = review["summary"]
+
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("거래수", s["거래수"])
+                m2.metric("승률", f"{s['승률(%)']:.1f}%")
+                m3.metric("평균수익률", f"{s['평균수익률(%)']:+.2f}%")
+                m4.metric("총실현손익", f"{s['총실현손익(원)']:,}원")
+
+                m5, m6, m7, m8 = st.columns(4)
+                m5.metric("승리 평균", f"{s['승리 평균(%)']:+.2f}%")
+                m6.metric("패배 평균", f"{s['패배 평균(%)']:+.2f}%")
+                m7.metric("최대수익", f"{s['최대수익(%)']:+.2f}%")
+                m8.metric("최대손실", f"{s['최대손실(%)']:+.2f}%")
+
+                m9, m10 = st.columns(2)
+                m9.metric("평균보유일수", f"{s['평균보유일수']:.0f}일")
+                if s.get("평균RR") is not None:
+                    m10.metric("평균 RR", f"{s['평균RR']:.2f}")
+
+                st.divider()
+
+                if review["by_reason"]:
+                    st.subheader("진입근거별 분석")
+                    reason_rows = []
+                    for reason, stats in review["by_reason"].items():
+                        reason_rows.append({
+                            "진입근거": reason,
+                            "거래수": stats["거래수"],
+                            "승률(%)": stats["승률(%)"],
+                            "평균수익률(%)": stats["평균수익률(%)"],
+                            "승리 평균(%)": stats["승리 평균(%)"],
+                            "패배 평균(%)": stats["패배 평균(%)"],
+                            "최대수익(%)": stats["최대수익(%)"],
+                            "최대손실(%)": stats["최대손실(%)"],
+                            "평균보유일(일)": stats["평균보유일수"],
+                            "평균RR": stats.get("평균RR", ""),
+                            "총손익(원)": stats["총실현손익(원)"],
+                        })
+                    reason_df = pd.DataFrame(reason_rows)
+                    _aggrid(
+                        reason_df,
+                        key="kr_review_reason",
+                        height=min(250, 60 + len(reason_df) * 40),
+                        color_map={"평균수익률(%)": "red_positive", "승리 평균(%)": "red_positive", "패배 평균(%)": "red_positive", "총손익(원)": "red_positive"},
+                        pct_cols=["승률(%)", "평균수익률(%)", "승리 평균(%)", "패배 평균(%)", "최대수익(%)", "최대손실(%)"],
+                        price_cols=["총손익(원)"],
+                    )
+
+                st.divider()
+
+                st.subheader("개별 거래 내역")
+                trades = review["trades"]
+                _trade_cols = ["청산일", "종목명", "진입근거", "수익률(%)", "비용차감손익(원)", "거래비용(원)", "보유일수", "RR"]
+                _trade_show = trades[[c for c in _trade_cols if c in trades.columns]]
+                _aggrid(
+                    _trade_show,
+                    key="kr_review_trades",
+                    height=min(400, 60 + len(_trade_show) * 35),
+                    color_map={"수익률(%)": "red_positive", "비용차감손익(원)": "red_positive"},
+                    pct_cols=["수익률(%)"],
+                    price_cols=["비용차감손익(원)", "거래비용(원)"],
+                )
+            else:
+                st.info(f"{_sel_month}에 실현 거래가 없습니다.")
 
     # ── 거래 이력 ─────────────────────────────
     with tab_log:
@@ -2874,7 +4426,7 @@ def show_watchlist():
     groups = wl.get(market, {})
 
     # ── 전체 그룹 RS 랭킹 테이블 (최상단) ──
-    _period = st.select_slider("분석 기간", options=[60, 120, 252], value=60,
+    _period = st.select_slider("분석 기간", options=[10, 20, 40, 60, 120, 252], value=60,
                                format_func=lambda x: f"{x}일", key="wl_period")
 
     if groups:
@@ -3036,6 +4588,9 @@ elif st.session_state.view == "backtest":
 elif st.session_state.view == "pattern_scanner":
     show_pattern_scanner()
 
+elif st.session_state.view == "short_scanner":
+    show_short_scanner()
+
 elif st.session_state.view == "watchlist_stocks":
     show_watchlist_stocks()
 
@@ -3092,8 +4647,11 @@ elif st.session_state.view == "group_chart":
                 st.session_state["view"]           = "chart"
                 st.rerun()
 
-elif st.session_state.view == "home":
-    show_home()
+elif st.session_state.view in ("home", "dashboard"):
+    show_dashboard()
+
+elif st.session_state.view == "market_indicators":
+    show_market_indicators()
 
 elif st.session_state.view in ("rs_scanner", "ranking"):
     st.title("📊 RS Scanner")

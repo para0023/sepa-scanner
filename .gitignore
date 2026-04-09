@@ -14,6 +14,13 @@ cache/
 # 로그
 logs/
 
+# 환경변수 (API 키 등)
+.env
+.streamlit/secrets.toml
+
+# 리포트
+reports/
+
 # 포트폴리오 (개인 데이터)
 portfolio.json
 portfolio_us.json

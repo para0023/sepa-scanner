@@ -1,4 +1,13 @@
+streamlit
 FinanceDataReader
 pandas
 numpy
 plotly
+streamlit-echarts
+streamlit-aggrid
+yfinance
+python-dotenv
+supabase
+requests
+pykrx
+fredapi

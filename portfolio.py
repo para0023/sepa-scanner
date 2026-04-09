@@ -1,7 +1,10 @@
 """
 SEPA Scanner - 포트폴리오 관리 모듈
+- 로컬 모드: JSON 파일 기반 (기존 방식)
+- 클라우드 모드: Supabase DB 기반 (사용자별 분리)
 """
 import json
+import os
 import uuid
 from pathlib import Path
 from datetime import datetime
@@ -17,18 +20,49 @@ _FEE_KR   = 0.001439   # 국내 수수료 (매수/매도 각각)
 _TAX_KR   = 0.0018     # 증권거래세 (매도 시만, KOSPI/KOSDAQ 공통)
 _FEE_US   = 0.0025     # 미국 수수료 (매수/매도 각각)
 
+# ─────────────────────────────────────────────
+# 모드 판별 + Supabase 헬퍼
+# ─────────────────────────────────────────────
+_CURRENT_MARKET = "KR"  # set_portfolio_file 에서 갱신
+
+
+def _is_cloud() -> bool:
+    """Supabase 클라우드 모드 여부"""
+    return os.environ.get("SEPA_LOCAL", "1") != "1"
+
+
+def _get_user_id() -> str:
+    """현재 로그인 사용자 ID (클라우드 전용)"""
+    try:
+        import streamlit as st
+        return st.session_state.get("user_id", "")
+    except Exception:
+        return ""
+
+
+def _get_supabase():
+    """Supabase 클라이언트 반환"""
+    try:
+        import streamlit as st
+        return st.session_state.get("supabase_client")
+    except Exception:
+        return None
+
 
 def set_portfolio_file(path: str):
     """포트폴리오 파일 경로 전환 (한국/미국 탭 전환용)"""
-    global PORTFOLIO_FILE
+    global PORTFOLIO_FILE, _CURRENT_MARKET
     p = Path(path)
     if not p.is_absolute():
         p = Path(__file__).parent / path
     PORTFOLIO_FILE = p
+    _CURRENT_MARKET = "US" if "us" in p.stem.lower() else "KR"
 
 
 def _is_kr() -> bool:
-    """현재 포트폴리오 파일이 한국(KR) 시장인지 여부"""
+    """현재 포트폴리오가 한국(KR) 시장인지 여부"""
+    if _is_cloud():
+        return _CURRENT_MARKET == "KR"
     return "us" not in PORTFOLIO_FILE.stem.lower()
 
 
@@ -41,10 +75,14 @@ def _calc_fees(buy_amount: float, sell_amount: float) -> float:
 
 
 # ─────────────────────────────────────────────
-# 내부 유틸
+# 내부 유틸 — 데이터 로드/저장
 # ─────────────────────────────────────────────
 
 def _load() -> dict:
+    """데이터 로드 (로컬: JSON, 클라우드: Supabase)"""
+    if _is_cloud():
+        return _load_supabase()
+    # 로컬 모드: 기존 JSON
     if not PORTFOLIO_FILE.exists():
         return {"positions": [], "trade_log": []}
     try:
@@ -58,8 +96,137 @@ def _load() -> dict:
 
 
 def _save(data: dict):
+    """데이터 저장 (로컬: JSON, 클라우드: Supabase)"""
+    if _is_cloud():
+        _save_supabase(data)
+        return
+    # 로컬 모드: 기존 JSON
     with open(PORTFOLIO_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+# ─────────────────────────────────────────────
+# Supabase CRUD (클라우드 모드)
+# ─────────────────────────────────────────────
+
+def _load_supabase() -> dict:
+    """Supabase에서 현재 사용자의 포트폴리오 데이터 로드"""
+    sb = _get_supabase()
+    uid = _get_user_id()
+    market = _CURRENT_MARKET
+    if not sb or not uid:
+        return {"positions": [], "trade_log": []}
+
+    try:
+        # positions
+        pos_res = sb.table("positions").select("*").eq("user_id", uid).eq("market", market).execute()
+        positions = []
+        for row in (pos_res.data or []):
+            positions.append({
+                "id": row["id"],
+                "ticker": row["ticker"],
+                "name": row["name"],
+                "status": row["status"],
+                "trades": row.get("trades", []),
+                "stop_loss_history": row.get("stop_loss_history", []),
+            })
+
+        # trade_log
+        log_res = sb.table("trade_log").select("*").eq("user_id", uid).eq("market", market).execute()
+        trade_log = []
+        for row in (log_res.data or []):
+            trade_log.append({
+                "date": row["date"],
+                "ticker": row["ticker"],
+                "name": row["name"],
+                "type": row["type"],
+                "price": float(row["price"]),
+                "quantity": int(row["quantity"]),
+                "entry_reason": row.get("entry_reason", ""),
+                "reason": row.get("reason", ""),
+                "memo": row.get("memo", ""),
+                "position_id": row.get("position_id", ""),
+                "trade_id": row.get("id", ""),
+            })
+
+        # capital_flows
+        cf_res = sb.table("capital_flows").select("*").eq("user_id", uid).eq("market", market).execute()
+        capital_flows = []
+        for row in (cf_res.data or []):
+            capital_flows.append({
+                "id": row["id"],
+                "date": row["date"],
+                "amount": float(row["amount"]),
+                "note": row.get("memo", ""),
+            })
+
+        return {
+            "positions": positions,
+            "trade_log": trade_log,
+            "capital_flows": capital_flows,
+        }
+    except Exception as e:
+        print(f"[Supabase 로드 실패] {e}")
+        return {"positions": [], "trade_log": []}
+
+
+def _save_supabase(data: dict):
+    """Supabase에 현재 사용자의 포트폴리오 데이터 저장 (전체 동기화)"""
+    sb = _get_supabase()
+    uid = _get_user_id()
+    market = _CURRENT_MARKET
+    if not sb or not uid:
+        return
+
+    try:
+        # positions: 기존 삭제 후 전체 재삽입
+        sb.table("positions").delete().eq("user_id", uid).eq("market", market).execute()
+        for pos in data.get("positions", []):
+            sb.table("positions").insert({
+                "id": pos["id"],
+                "user_id": uid,
+                "market": market,
+                "ticker": pos["ticker"],
+                "name": pos["name"],
+                "status": pos["status"],
+                "trades": pos.get("trades", []),
+                "stop_loss_history": pos.get("stop_loss_history", []),
+            }).execute()
+
+        # trade_log: 기존 삭제 후 전체 재삽입
+        sb.table("trade_log").delete().eq("user_id", uid).eq("market", market).execute()
+        for log in data.get("trade_log", []):
+            sb.table("trade_log").insert({
+                "user_id": uid,
+                "market": market,
+                "position_id": log.get("position_id"),
+                "ticker": log.get("ticker", ""),
+                "name": log.get("name", ""),
+                "type": log.get("type", ""),
+                "date": log.get("date", ""),
+                "price": log.get("price", 0),
+                "quantity": log.get("quantity", 0),
+                "stop_loss": log.get("stop_loss"),
+                "take_profit": log.get("take_profit"),
+                "entry_reason": log.get("entry_reason", ""),
+                "reason": log.get("reason", ""),
+                "memo": log.get("memo", ""),
+            }).execute()
+
+        # capital_flows: 기존 삭제 후 전체 재삽입
+        sb.table("capital_flows").delete().eq("user_id", uid).eq("market", market).execute()
+        for cf in data.get("capital_flows", []):
+            sb.table("capital_flows").insert({
+                "id": cf.get("id", str(uuid.uuid4())),
+                "user_id": uid,
+                "market": market,
+                "date": cf["date"],
+                "amount": cf["amount"],
+                "memo": cf.get("note", ""),
+            }).execute()
+
+    except Exception as e:
+        print(f"[Supabase 저장 실패] {e}")
 
 
 def _remaining_qty(pos: dict) -> int:
@@ -114,6 +281,7 @@ def add_buy(
     ticker: str, name: str, date: str,
     price: float, quantity: int,
     stop_loss: float, entry_reason: str, memo: str = "",
+    take_profit: float = 0,
 ) -> str:
     """매수 기록. 동일 종목 오픈 포지션이 있으면 추가매수(피라미딩)."""
     data = _load()
@@ -129,7 +297,7 @@ def add_buy(
                "stop_loss_history": []}
         data["positions"].append(pos)
 
-    pos["trades"].append({
+    trade = {
         "id":           str(uuid.uuid4()),
         "type":         "buy",
         "date":         date,
@@ -138,7 +306,10 @@ def add_buy(
         "stop_loss":    stop_loss,
         "entry_reason": entry_reason,
         "memo":         memo,
-    })
+    }
+    if take_profit and take_profit > 0:
+        trade["take_profit"] = take_profit
+    pos["trades"].append(trade)
 
     # 손절가 이력 자동 기록
     source = "최초매수" if is_new else "추가매수"
@@ -351,6 +522,20 @@ def update_stop_loss(position_id: str, date: str, price: float, note: str = "") 
     return True
 
 
+def update_take_profit(position_id: str, price: float) -> bool:
+    """1차 익절가 수동 수정. 마지막 매수 거래의 take_profit을 업데이트."""
+    data = _load()
+    pos  = next((p for p in data["positions"] if p["id"] == position_id), None)
+    if pos is None:
+        return False
+    buy_trades = [t for t in pos["trades"] if t["type"] == "buy"]
+    if not buy_trades:
+        return False
+    buy_trades[-1]["take_profit"] = price
+    _save(data)
+    return True
+
+
 def get_stop_loss_history(position_id: str) -> pd.DataFrame:
     """특정 포지션의 손절가 변경 이력"""
     data = _load()
@@ -387,6 +572,11 @@ def get_open_positions() -> pd.DataFrame:
         except Exception:
             days = 0
 
+        # 1차 익절가: 마지막 매수의 take_profit
+        take_profit = 0
+        if buy_trades:
+            take_profit = buy_trades[-1].get("take_profit", 0)
+
         rows.append({
             "position_id": pos["id"],
             "종목코드":    pos["ticker"],
@@ -396,12 +586,13 @@ def get_open_positions() -> pd.DataFrame:
             "평균매수가":  round(avg, 2),
             "수량":        qty,
             "손절가":      stop_loss,
+            "1차익절가":   take_profit,
             "진입근거":    entry_reason,
             "메모":        memo,
         })
 
     cols = ["position_id", "종목코드", "종목명", "매수일", "경과일",
-            "평균매수가", "수량", "손절가", "진입근거", "메모"]
+            "평균매수가", "수량", "손절가", "1차익절가", "진입근거", "메모"]
     return pd.DataFrame(rows, columns=cols) if rows else pd.DataFrame(columns=cols)
 
 
@@ -468,10 +659,14 @@ def get_realized_pnl() -> pd.DataFrame:
             # 목표손절률: (최초손절가 - 평균매수가) / 평균매수가 * 100
             target_stop_pct = round((initial_stop - avg_buy) / avg_buy * 100, 2) if avg_buy > 0 and initial_stop > 0 else None
 
+            # 진입근거
+            entry_reason = buys[0].get("entry_reason", "") if buys else ""
+
             rows.append({
                 "날짜":         sell["date"],
                 "종목명":       pos["name"],
                 "종목코드":     pos["ticker"],
+                "진입근거":     entry_reason,
                 "구분":         "부분청산" if pos["status"] == "open" else "전체청산",
                 "매도가":       round(sell_price, 2),
                 "평균매수가":   round(avg_buy, 2),
@@ -592,7 +787,7 @@ def get_trades_by_ticker(ticker: str) -> list:
     특정 종목의 매수/매도 내역을 리스트로 반환.
     차트 마커 표시용.
     반환: [{"type": "buy"|"sell", "date": str, "price": float,
-            "quantity": int, "label": str}, ...]
+            "quantity": int, "label": str, "position_status": str}, ...]
     """
     data = _load()
     result = []
@@ -610,6 +805,9 @@ def get_trades_by_ticker(ticker: str) -> list:
                 "price":    t["price"],
                 "quantity": t["quantity"],
                 "label":    label,
+                "position_status": pos["status"],
+                "stop_loss": t.get("stop_loss", 0),
+                "take_profit": t.get("take_profit", 0),
             })
     result.sort(key=lambda x: x["date"])
     return result
@@ -650,26 +848,47 @@ def calculate_performance() -> dict:
 
 
 def _calc_stats(results: list) -> dict:
+    capital = get_total_capital()
+
     def stats_for(subset):
         if not subset:
             return None
         wins   = [r for r in subset if r["pnl_pct"] > 0]
         losses = [r for r in subset if r["pnl_pct"] <= 0]
         n      = len(subset)
-        avg_win  = sum(r["pnl_pct"] for r in wins)   / len(wins)   if wins   else 0
-        avg_loss = sum(r["pnl_pct"] for r in losses) / len(losses) if losses else 0
-        avg_ret  = sum(r["pnl_pct"] for r in subset) / n
         total_inv = sum(r["total_buy_cost"] for r in subset)
-        base_inv  = results[0]["total_buy_cost"] if results else 1
-        turnover  = total_inv / base_inv if base_inv > 0 else 0
+
+        # 금액 가중 평균수익률
+        if total_inv > 0:
+            avg_win  = sum(r["pnl_pct"] * r["total_buy_cost"] for r in wins)   / sum(r["total_buy_cost"] for r in wins)   if wins   else 0
+            avg_loss = sum(r["pnl_pct"] * r["total_buy_cost"] for r in losses) / sum(r["total_buy_cost"] for r in losses) if losses else 0
+            avg_ret  = sum(r["pnl_pct"] * r["total_buy_cost"] for r in subset) / total_inv
+        else:
+            avg_win = avg_loss = avg_ret = 0
+
+        # 단순 평균 (참고용)
+        simple_avg_ret = sum(r["pnl_pct"] for r in subset) / n if n else 0
+
+        # 총 실현손익
+        total_pnl = sum(r["total_buy_cost"] * r["pnl_pct"] / 100 for r in subset)
+
+        # 회전율: 총 매수금액 / 투입 자본
+        turnover = total_inv / capital if capital > 0 else None
+
+        # 원금 대비 실현수익률
+        capital_ret = (total_pnl / capital * 100) if capital > 0 else None
+
         return {
             "총거래수":             n,
             "승률(%)":              round(len(wins) / n * 100, 1),
             "승리 평균수익률(%)":   round(avg_win,    2),
             "패배 평균손실률(%)":   round(avg_loss,   2),
             "전체 평균수익률(%)":   round(avg_ret,    2),
-            "자산회전율":           round(turnover,   2),
-            "회전율 조정수익률(%)": round(avg_ret * turnover, 2),
+            "단순 평균수익률(%)":   round(simple_avg_ret, 2),
+            "자산회전율":           round(turnover,   2) if turnover is not None else None,
+            "회전율 조정수익률(%)": round(avg_ret * turnover, 2) if turnover is not None else None,
+            "총실현손익(원)":       int(total_pnl),
+            "원금대비수익률(%)":    round(capital_ret, 2) if capital_ret is not None else None,
         }
 
     overall   = stats_for(results)
@@ -735,3 +954,120 @@ def get_monthly_performance() -> pd.DataFrame:
         result["누적손익(원)"] = result["총실현손익(원)"].cumsum().astype(int)
 
     return result.sort_values("월", ascending=False).reset_index(drop=True)
+
+
+def _get_closed_positions_detail() -> pd.DataFrame:
+    """종목별 완전청산 기준 실현손익 (비용차감 포함)"""
+    data = _load()
+    rows = []
+
+    for pos in data["positions"]:
+        if pos["status"] != "closed":
+            continue
+        buys = [t for t in pos["trades"] if t["type"] == "buy"]
+        sells = [t for t in pos["trades"] if t["type"] == "sell"]
+        if not buys or not sells:
+            continue
+
+        buy_cost = sum(t["price"] * t["quantity"] for t in buys)
+        buy_qty = sum(t["quantity"] for t in buys)
+        sell_rev = sum(t["price"] * t["quantity"] for t in sells)
+        avg_buy = buy_cost / buy_qty if buy_qty > 0 else 0
+
+        pnl_amt = sell_rev - buy_cost
+        fees = _calc_fees(buy_cost, sell_rev)
+        net_pnl = pnl_amt - fees
+        net_pct = net_pnl / buy_cost * 100 if buy_cost > 0 else 0
+
+        # 최초 손절가
+        history = pos.get("stop_loss_history", [])
+        first_h = next((h for h in history if h.get("price", 0) > 0), None)
+        initial_stop = first_h["price"] if first_h else (buys[0].get("stop_loss", 0) if buys else 0)
+
+        # RR
+        risk = avg_buy - initial_stop if initial_stop > 0 else 0
+        avg_sell = sell_rev / sum(t["quantity"] for t in sells) if sells else 0
+        reward = avg_sell - avg_buy
+        rr = round(reward / risk, 2) if risk > 0 else None
+
+        try:
+            entry_dt = datetime.strptime(buys[0]["date"], "%Y-%m-%d")
+            exit_dt = datetime.strptime(sells[-1]["date"], "%Y-%m-%d")
+            hold_days = (exit_dt - entry_dt).days
+        except Exception:
+            hold_days = None
+
+        entry_reason = buys[0].get("entry_reason", "") if buys else ""
+
+        rows.append({
+            "청산일": sells[-1]["date"],
+            "종목명": pos["name"],
+            "종목코드": pos["ticker"],
+            "진입근거": entry_reason,
+            "매수금액": round(buy_cost),
+            "매도금액": round(sell_rev),
+            "실현손익(원)": round(pnl_amt),
+            "거래비용(원)": round(fees),
+            "비용차감손익(원)": round(net_pnl),
+            "수익률(%)": round(net_pct, 2),
+            "보유일수": hold_days,
+            "RR": rr,
+        })
+
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows).sort_values("청산일", ascending=False).reset_index(drop=True)
+
+
+def get_monthly_review(month: str = None) -> dict:
+    """
+    월별 성과 리뷰 리포트 (종목별 완전청산 기준).
+    month: "2026-03" 형식. None이면 최근 월.
+    """
+    df = _get_closed_positions_detail()
+    if df.empty:
+        return {}
+    df = df.copy()
+    df["월"] = pd.to_datetime(df["청산일"]).dt.to_period("M").astype(str)
+
+    if month is None:
+        month = df["월"].max()
+
+    mdf = df[df["월"] == month]
+    if mdf.empty:
+        return {"month": month, "summary": None, "by_reason": {}, "trades": pd.DataFrame()}
+
+    def _calc_summary(data):
+        n = len(data)
+        wins = data[data["수익률(%)"] > 0]
+        losses = data[data["수익률(%)"] <= 0]
+        return {
+            "거래수": n,
+            "승률(%)": round(len(wins) / n * 100, 1) if n > 0 else 0,
+            "평균수익률(%)": round(data["수익률(%)"].mean(), 2),
+            "평균보유일수": round(data["보유일수"].dropna().mean(), 1) if data["보유일수"].dropna().any() else 0,
+            "승리 평균(%)": round(wins["수익률(%)"].mean(), 2) if len(wins) > 0 else 0,
+            "패배 평균(%)": round(losses["수익률(%)"].mean(), 2) if len(losses) > 0 else 0,
+            "최대수익(%)": round(data["수익률(%)"].max(), 2),
+            "최대손실(%)": round(data["수익률(%)"].min(), 2),
+            "총실현손익(원)": int(data["비용차감손익(원)"].sum()),
+            "거래비용(원)": int(data["거래비용(원)"].sum()),
+            "평균RR": round(data["RR"].dropna().mean(), 2) if data["RR"].dropna().any() else None,
+        }
+
+    summary = _calc_summary(mdf)
+
+    # 진입근거별 분석
+    by_reason = {}
+    if "진입근거" in mdf.columns:
+        for reason, grp in mdf.groupby("진입근거"):
+            if not reason:
+                continue
+            by_reason[reason] = _calc_summary(grp)
+
+    return {
+        "month": month,
+        "summary": summary,
+        "by_reason": by_reason,
+        "trades": mdf.reset_index(drop=True),
+    }
