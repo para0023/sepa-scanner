@@ -236,7 +236,8 @@ def _fetch_benchmark(benchmark_code: str, period: int) -> pd.DataFrame:
     fetch_days = period * 3 + 30
     end_date   = datetime.now()
     start_date = end_date - timedelta(days=fetch_days)
-    return fdr.DataReader(benchmark_code, start_date, end_date)
+    df = fdr.DataReader(benchmark_code, start_date, end_date)
+    return df.dropna(subset=["Close"])
 
 
 def _calc_rs_single(ticker: str, name: str, index_df: pd.DataFrame, period: int) -> Optional[dict]:
@@ -247,6 +248,7 @@ def _calc_rs_single(ticker: str, name: str, index_df: pd.DataFrame, period: int)
         end_date   = datetime.now()
         start_date = end_date - timedelta(days=fetch_days)
         stock_df   = fdr.DataReader(ticker, start_date, end_date)
+        stock_df   = stock_df.dropna(subset=["Close"])
 
         if stock_df.empty:
             return None
@@ -807,6 +809,7 @@ def _check_stage4_single(ticker: str, name: str, rs_score: float, rs_pct: float)
         end_date = datetime.now()
         start_date = end_date - timedelta(days=400)
         stock = fdr.DataReader(ticker, start_date, end_date)
+        stock = stock.dropna(subset=["Close"])
         if stock.empty or len(stock) < 200:
             return None
         stock = stock[~stock.index.duplicated(keep='last')]

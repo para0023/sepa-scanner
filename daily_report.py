@@ -57,11 +57,12 @@ def _fetch_index(code: str, days: int = 10) -> pd.DataFrame:
 
 
 def _fetch_current_price(ticker: str) -> float:
-    """현재가 조회 (최근 종가)"""
+    """현재가 조회 (최근 종가, NaN 제외)"""
     try:
         end = datetime.now()
         start = end - timedelta(days=10)
         df = fdr.DataReader(ticker, start, end)
+        df = df.dropna(subset=["Close"])
         if not df.empty:
             return float(df["Close"].iloc[-1])
     except Exception:

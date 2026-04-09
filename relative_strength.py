@@ -126,10 +126,12 @@ def fetch_data(ticker: str, benchmark_code: str, period: int):
     print(f"  [{ticker}] 데이터 수집 중...")
     stock_df = fdr.DataReader(ticker, start_date, end_date)
     stock_df = stock_df[~stock_df.index.duplicated(keep='last')]
+    stock_df = stock_df.dropna(subset=["Close"])  # 장중 NaN 제거
 
     print(f"  [{benchmark_code}] 벤치마크 수집 중...")
     index_df = fdr.DataReader(benchmark_code, start_date, end_date)
     index_df = index_df[~index_df.index.duplicated(keep='last')]
+    index_df = index_df.dropna(subset=["Close"])  # 장중 NaN 제거
 
     if stock_df.empty:
         raise ValueError(f"종목 데이터를 찾을 수 없습니다: {ticker}")
