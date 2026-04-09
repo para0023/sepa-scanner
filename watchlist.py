@@ -21,7 +21,14 @@ WATCHLIST_STOCKS_FILE = Path(__file__).parent / "watchlist_stocks.json"
 
 
 def _is_cloud() -> bool:
-    return os.environ.get("SEPA_LOCAL", "1") != "1"
+    env_val = os.environ.get("SEPA_LOCAL")
+    if env_val is not None:
+        return env_val != "1"
+    try:
+        import streamlit as st
+        return st.secrets.get("app", {}).get("SEPA_LOCAL", "1") != "1"
+    except Exception:
+        return False
 
 def _get_user_id() -> str:
     try:

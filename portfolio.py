@@ -28,7 +28,14 @@ _CURRENT_MARKET = "KR"  # set_portfolio_file 에서 갱신
 
 def _is_cloud() -> bool:
     """Supabase 클라우드 모드 여부"""
-    return os.environ.get("SEPA_LOCAL", "1") != "1"
+    env_val = os.environ.get("SEPA_LOCAL")
+    if env_val is not None:
+        return env_val != "1"
+    try:
+        import streamlit as st
+        return st.secrets.get("app", {}).get("SEPA_LOCAL", "1") != "1"
+    except Exception:
+        return False
 
 
 def _get_user_id() -> str:

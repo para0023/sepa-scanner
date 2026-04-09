@@ -109,6 +109,14 @@ def get_user_id() -> str:
 
 
 def is_local_mode() -> bool:
-    """로컬 모드 여부. 환경변수 SEPA_LOCAL=1 이면 로컬 (인증 건너뜀)"""
+    """로컬 모드 여부. SEPA_LOCAL=1 이면 로컬 (인증 건너뜀)"""
     import os
-    return os.environ.get("SEPA_LOCAL", "1") == "1"
+    # 1) OS 환경변수 우선
+    env_val = os.environ.get("SEPA_LOCAL")
+    if env_val is not None:
+        return env_val == "1"
+    # 2) Streamlit secrets에서 확인
+    try:
+        return st.secrets.get("app", {}).get("SEPA_LOCAL", "1") == "1"
+    except Exception:
+        return True
