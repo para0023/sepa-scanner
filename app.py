@@ -1357,11 +1357,17 @@ def _fetch_ecos_key100(stat_id: str) -> pd.DataFrame:
 
 
 def _fetch_ecos(stat_code: str, item_code: str, cycle: str, start: str, end: str) -> pd.DataFrame:
-    """ECOS API로 시계열 데이터 조회. .env에서 API키 로드."""
+    """ECOS API로 시계열 데이터 조회."""
     import os
     from dotenv import load_dotenv
     load_dotenv(Path(__file__).parent / ".env")
     api_key = os.getenv("ECOS_API_KEY", "")
+    # Streamlit secrets에서도 시도
+    if not api_key:
+        try:
+            api_key = st.secrets.get("app", {}).get("ECOS_API_KEY", "")
+        except Exception:
+            pass
     if not api_key:
         return pd.DataFrame()
     try:
