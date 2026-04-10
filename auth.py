@@ -1,12 +1,13 @@
 """
 SEPA Scanner 인증 모듈
 - Supabase Auth 기반 로그인/회원가입
-- 세션 토큰으로 새로고침 후에도 로그인 유지
+- query_params에 세션 토큰 저장 → 새로고침 후에도 로그인 유지
 - 로컬 모드에서는 인증 건너뛰기 가능
 """
 
 import streamlit as st
 from supabase import create_client, Client
+import base64
 
 
 def _get_supabase() -> Client:
@@ -23,28 +24,69 @@ def get_supabase() -> Client:
     return _get_supabase()
 
 
-def _try_restore_session() -> bool:
-    """Supabase 클라이언트의 기존 세션으로 인증 복원 시도"""
+def _set_auth_state(user, session=None):
+    """인증 상태를 session_state에 저장"""
+    st.session_state["authenticated"] = True
+    st.session_state["user"] = user
+    st.session_state["user_id"] = user.id
+    st.session_state["user_email"] = user.email
+    if session:
+        st.session_state["access_token"] = session.access_token
+        st.session_state["refresh_token"] = session.refresh_token
+
+
+def _save_token(refresh_token: str):
+    """refresh_token을 query_params에 저장"""
+    encoded = base64.urlsafe_b64encode(refresh_token.encode()).decode()
+    st.query_params["t"] = encoded
+
+
+def _load_token() -> str | None:
+    """query_params에서 refresh_token 읽기"""
+    encoded = st.query_params.get("t")
+    if not encoded:
+        return None
+    try:
+        return base64.urlsafe_b64decode(encoded.encode()).decode()
+    except Exception:
+        return None
+
+
+def _clear_token():
+    """query_params에서 토큰 제거"""
+    if "t" in st.query_params:
+        del st.query_params["t"]
+
+
+def try_restore_session() -> bool:
+    """query_params의 refresh_token으로 세션 복원"""
     if st.session_state.get("authenticated"):
         return True
+
+    refresh_token = _load_token()
+    # 임시 디버그 (문제 해결 후 제거)
+    st.toast(f"🔑 token exists: {bool(refresh_token)}, params: {list(st.query_params.keys())}")
+    if not refresh_token:
+        return False
+
     try:
         sb = _get_supabase()
-        session = sb.auth.get_session()
-        if session and session.user:
-            st.session_state["authenticated"] = True
-            st.session_state["user"] = session.user
-            st.session_state["user_id"] = session.user.id
-            st.session_state["user_email"] = session.user.email
+        res = sb.auth.refresh_session(refresh_token)
+        if res and res.user:
+            _set_auth_state(res.user, res.session)
+            if res.session and res.session.refresh_token:
+                _save_token(res.session.refresh_token)
+            st.toast("✅ 세션 복원 성공")
             return True
-    except Exception:
-        pass
+    except Exception as e:
+        st.toast(f"❌ 복원 실패: {e}")
+        _clear_token()
     return False
 
 
 def login_page():
     """로그인/회원가입 페이지. 인증 성공 시 True 반환."""
-    # 기존 세션 복원 시도
-    if _try_restore_session():
+    if try_restore_session():
         return True
 
     st.set_page_config(page_title="SEPA Scanner - Login", page_icon="📈", layout="centered")
@@ -67,14 +109,9 @@ def login_page():
                 else:
                     try:
                         res = sb.auth.sign_in_with_password({"email": email, "password": password})
-                        st.session_state["authenticated"] = True
-                        st.session_state["user"] = res.user
-                        st.session_state["user_id"] = res.user.id
-                        st.session_state["user_email"] = res.user.email
-                        # access_token 저장 (세션 복원용)
-                        if res.session:
-                            st.session_state["access_token"] = res.session.access_token
-                            st.session_state["refresh_token"] = res.session.refresh_token
+                        _set_auth_state(res.user, res.session)
+                        if res.session and res.session.refresh_token:
+                            _save_token(res.session.refresh_token)
                         st.rerun()
                     except Exception as e:
                         err = str(e)
@@ -122,6 +159,7 @@ def logout():
         sb.auth.sign_out()
     except Exception:
         pass
+    _clear_token()
     for key in ["authenticated", "user", "user_id", "user_email",
                 "supabase_client", "access_token", "refresh_token"]:
         st.session_state.pop(key, None)
@@ -136,11 +174,9 @@ def get_user_id() -> str:
 def is_local_mode() -> bool:
     """로컬 모드 여부. SEPA_LOCAL=1 이면 로컬 (인증 건너뜀)"""
     import os
-    # 1) OS 환경변수 우선
     env_val = os.environ.get("SEPA_LOCAL")
     if env_val is not None:
         return env_val == "1"
-    # 2) Streamlit secrets에서 확인
     try:
         return st.secrets.get("app", {}).get("SEPA_LOCAL", "1") == "1"
     except Exception:

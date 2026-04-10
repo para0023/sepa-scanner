@@ -18,6 +18,9 @@ logs/
 .env
 .streamlit/secrets.toml
 
+# 개인 관리 문서
+docs/
+
 # 리포트
 reports/
 

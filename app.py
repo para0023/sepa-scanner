@@ -214,16 +214,20 @@ def resolve_korean_name(text: str) -> str:
 # ══════════════════════════════════════════════════════════
 # 페이지 설정 + 인증
 # ══════════════════════════════════════════════════════════
-from auth import login_page, logout, get_user_id, is_local_mode
+from auth import login_page, logout, get_user_id, is_local_mode, try_restore_session
 
 _CLOUD_MODE = not is_local_mode()
 
+# 클라우드 모드: 쿠키로 세션 복원 시도 (login_page 호출 전에 먼저)
 if _CLOUD_MODE and not st.session_state.get("authenticated"):
-    # 클라우드 배포: 로그인 화면 (centered 레이아웃)
+    try_restore_session()
+
+if _CLOUD_MODE and not st.session_state.get("authenticated"):
+    # 복원 실패 → 로그인 화면
     if not login_page():
         st.stop()
 else:
-    # 로컬 모드 또는 이미 인증됨: 메인 앱 레이아웃
+    # 로컬 모드 또는 인증됨: 메인 앱 레이아웃
     st.set_page_config(
         page_title="SEPA - Specific Entry Point Analysis",
         page_icon="📈",
