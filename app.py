@@ -1857,11 +1857,11 @@ def _show_vcp_table(market: str, auto_calc: bool = True):
     cache_key = f"vcp_patterns_{market}_{_PS_PERIOD}"
     vcp_file_time = get_vcp_pattern_cache_info(market, _PS_PERIOD)
 
-    _force = st.session_state.pop("_force_rescan", False)
+    _force = st.session_state.pop(f"_force_rescan_{market}", False)
 
-    if _force and not _is_us:
-        # 강제 재스캔: 캐시 무시하고 새로 계산 (한국장만)
-        n_cands = "약 380종목" if market == "KOSPI" else "약 730종목"
+    if _force:
+        # 강제 재스캔: 캐시 무시하고 새로 계산
+        n_cands = {"KOSPI": "약 380종목", "KOSDAQ": "약 730종목", "NASDAQ": "약 3500종목", "NYSE": "약 2000종목"}.get(market, "")
         status  = st.empty()
         bar     = st.progress(0)
         status.info(f"⏳ {market} 강제 재스캔 중... ({n_cands})")
@@ -2004,21 +2004,17 @@ def show_pattern_scanner():
     st.title("🔍 Pattern Scanner")
     st.caption("Breakout Entry (VCP / BO)  ·  RS 60일 기준 · RS 상위 40% · 2단계 조건 포함")
 
-    col_ref, col_info, _ = st.columns([1, 4, 3])
-    with col_ref:
-        if st.button("🔄 강제 재스캔", help="전체 재스캔 (한국장만, 새 캐시로 덮어쓰기)"):
-            st.session_state["_force_rescan"] = True
-            for k in [k for k in st.session_state if k.startswith("vcp_patterns_")]:
-                del st.session_state[k]
-            st.rerun()
-    with col_info:
-        st.caption("💡 매일 첫 실행 시 자동 재계산 · 당일은 캐시에서 즉시 로드")
-
-    st.divider()
+    st.caption("💡 매일 첫 실행 시 자동 재계산 · 당일은 캐시에서 즉시 로드")
 
     tab_kr, tab_us = st.tabs(["🇰🇷 한국", "🇺🇸 미국"])
 
     with tab_kr:
+        if st.button("🔄 강제 재스캔", key="rescan_kr", help="한국장 전체 재스캔 (새 캐시로 덮어쓰기)"):
+            for m in ("KOSPI", "KOSDAQ"):
+                st.session_state[f"_force_rescan_{m}"] = True
+                st.session_state.pop(f"vcp_patterns_{m}_{_PS_PERIOD}", None)
+            st.rerun()
+        st.divider()
         st.markdown("#### 📊 KOSPI")
         _show_vcp_table("KOSPI")
         st.divider()
@@ -2026,6 +2022,12 @@ def show_pattern_scanner():
         _show_vcp_table("KOSDAQ")
 
     with tab_us:
+        if st.button("🔄 강제 재스캔", key="rescan_us", help="미국장 전체 재스캔 (새 캐시로 덮어쓰기)"):
+            for m in ("NASDAQ", "NYSE"):
+                st.session_state[f"_force_rescan_{m}"] = True
+                st.session_state.pop(f"vcp_patterns_{m}_{_PS_PERIOD}", None)
+            st.rerun()
+        st.divider()
         col_nasdaq, col_nyse = st.columns(2)
         with col_nasdaq:
             st.markdown("#### 📊 NASDAQ")
