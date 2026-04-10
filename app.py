@@ -1365,7 +1365,7 @@ def _fetch_ecos(stat_code: str, item_code: str, cycle: str, start: str, end: str
     # Streamlit secrets에서도 시도
     if not api_key:
         try:
-            api_key = st.secrets.get("app", {}).get("ECOS_API_KEY", "")
+            api_key = st.secrets["app"]["ECOS_API_KEY"]
         except Exception:
             pass
     if not api_key:

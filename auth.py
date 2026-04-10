@@ -1,6 +1,7 @@
 """
 SEPA Scanner 인증 모듈
 - Supabase Auth 기반 로그인/회원가입
+- 세션 토큰으로 새로고침 후에도 로그인 유지
 - 로컬 모드에서는 인증 건너뛰기 가능
 """
 
@@ -22,9 +23,28 @@ def get_supabase() -> Client:
     return _get_supabase()
 
 
+def _try_restore_session() -> bool:
+    """Supabase 클라이언트의 기존 세션으로 인증 복원 시도"""
+    if st.session_state.get("authenticated"):
+        return True
+    try:
+        sb = _get_supabase()
+        session = sb.auth.get_session()
+        if session and session.user:
+            st.session_state["authenticated"] = True
+            st.session_state["user"] = session.user
+            st.session_state["user_id"] = session.user.id
+            st.session_state["user_email"] = session.user.email
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def login_page():
     """로그인/회원가입 페이지. 인증 성공 시 True 반환."""
-    if st.session_state.get("authenticated"):
+    # 기존 세션 복원 시도
+    if _try_restore_session():
         return True
 
     st.set_page_config(page_title="SEPA Scanner - Login", page_icon="📈", layout="centered")
@@ -51,6 +71,10 @@ def login_page():
                         st.session_state["user"] = res.user
                         st.session_state["user_id"] = res.user.id
                         st.session_state["user_email"] = res.user.email
+                        # access_token 저장 (세션 복원용)
+                        if res.session:
+                            st.session_state["access_token"] = res.session.access_token
+                            st.session_state["refresh_token"] = res.session.refresh_token
                         st.rerun()
                     except Exception as e:
                         err = str(e)
@@ -98,7 +122,8 @@ def logout():
         sb.auth.sign_out()
     except Exception:
         pass
-    for key in ["authenticated", "user", "user_id", "user_email", "supabase_client"]:
+    for key in ["authenticated", "user", "user_id", "user_email",
+                "supabase_client", "access_token", "refresh_token"]:
         st.session_state.pop(key, None)
     st.rerun()
 
