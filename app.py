@@ -105,7 +105,7 @@ def _aggrid(df, key, height=400, click_nav=False, fit_columns=False, color_map=N
     hide_cols.add("종목코드")
 
     # 컬럼명으로 가격 컬럼 자동 감지
-    _price_keywords = ("가", "금액", "매출", "이익", "손실", "단가", "원", "원)")
+    _price_keywords = ("가", "금액", "매출", "이익", "손실", "단가", "원", "원)", "피벗")
     for col in df.columns:
         if any(col.endswith(k) for k in _price_keywords):
             price_cols.add(col)
