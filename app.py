@@ -1990,12 +1990,14 @@ def _show_vcp_table(market: str, auto_calc: bool = True):
     )
     selected = result["selected_rows"]
     if selected is not None and len(selected) > 0:
-        row = selected[0]
+        import pandas as pd
+        row = selected.iloc[0] if isinstance(selected, pd.DataFrame) else selected[0]
+        ticker = row.get("종목코드", "") if isinstance(row, dict) else row.get("종목코드", "")
         st.session_state.view           = "chart"
-        st.session_state.chart_ticker   = row["종목코드"]
-        st.session_state.chart_name     = row.get("종목명", "")
+        st.session_state.chart_ticker   = ticker
+        st.session_state.chart_name     = row.get("종목명", "") if isinstance(row, dict) else row.get("종목명", "")
         st.session_state.chart_period   = _PS_PERIOD
-        st.session_state.sidebar_ticker = row["종목코드"]
+        st.session_state.sidebar_ticker = ticker
         st.session_state.return_to_view = "pattern_scanner"
         st.rerun()
 
