@@ -64,8 +64,6 @@ def try_restore_session() -> bool:
         return True
 
     refresh_token = _load_token()
-    # 임시 디버그 (문제 해결 후 제거)
-    st.toast(f"🔑 token exists: {bool(refresh_token)}, params: {list(st.query_params.keys())}")
     if not refresh_token:
         return False
 
@@ -76,10 +74,8 @@ def try_restore_session() -> bool:
             _set_auth_state(res.user, res.session)
             if res.session and res.session.refresh_token:
                 _save_token(res.session.refresh_token)
-            st.toast("✅ 세션 복원 성공")
             return True
-    except Exception as e:
-        st.toast(f"❌ 복원 실패: {e}")
+    except Exception:
         _clear_token()
     return False
 
