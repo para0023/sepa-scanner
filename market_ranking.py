@@ -658,12 +658,14 @@ def _detect_vcp_single(
             return None
         contraction_strength = round((first_range - last_range) / first_range * 100, 1)
 
-        # 피벗 = 1차 스윙 고점 (베이스 내 첫 번째 수축 구간의 고점 = 전고점 돌파 기준)
-        pivot          = round(best_seq[0]["high_price"])
-        pivot_dist_pct = round((pivot - current_price) / current_price * 100, 2)
+        # 직전 피벗 = 수축 시퀀스 내 가장 높은 고점 (돌파 진입 기준)
+        # 최종 피벗 = 베이스 상단 (완전한 브레이크아웃 기준)
+        near_pivot      = round(max(s["high_price"] for s in best_seq))
+        near_pivot_dist = round((near_pivot - current_price) / current_price * 100, 2)
+        final_pivot     = round(base_top_price)
 
-        # 이미 피벗 위에 있으면 제외 (돌파 후)
-        if pivot_dist_pct < 0:
+        # 이미 직전 피벗 위에 있으면 제외 (돌파 후)
+        if near_pivot_dist < 0:
             return None
 
         return {
@@ -673,11 +675,11 @@ def _detect_vcp_single(
             "RS순위(%)":     round(rs_rank_pct, 1),
             "수축(T)":       best_t,
             "수축강도(%)":   contraction_strength,
-            "피벗":          pivot,
+            "직전피벗":      near_pivot,
             "현재가":        round(current_price),
-            "피벗거리(%)":   pivot_dist_pct,
+            "피벗거리(%)":   near_pivot_dist,
+            "최종피벗":      final_pivot,
             "거래량비율(%)": vol_ratio,
-            "베이스상단":    round(base_top_price),
             "베이스기간(일)": base_period,
         }
     except Exception:

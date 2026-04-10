@@ -1835,18 +1835,18 @@ def show_market_indicators():
 
 _VCP_SHOW_COLS = [
     "종목코드", "종목명", "RS Score", "RS순위(%)",
-    "수축(T)", "수축강도(%)", "피벗", "현재가", "피벗거리(%)",
-    "거래량비율(%)", "베이스상단", "베이스기간(일)",
+    "수축(T)", "수축강도(%)", "직전피벗", "현재가", "피벗거리(%)",
+    "최종피벗", "거래량비율(%)", "베이스기간(일)",
 ]
 _VCP_FMT = {
     "RS Score":      "{:+.2f}",
     "RS순위(%)":     "{:.1f}%",
     "수축강도(%)":   "{:.1f}%",
-    "피벗":          "{:,.0f}",
+    "직전피벗":      "{:,.0f}",
     "현재가":        "{:,.0f}",
     "피벗거리(%)":   "{:.2f}%",
+    "최종피벗":      "{:,.0f}",
     "거래량비율(%)": "{:.1f}%",
-    "베이스상단":    "{:,.0f}",
 }
 _PS_PERIOD = 60  # Pattern Scanner 고정 기간
 
@@ -1856,6 +1856,35 @@ def _show_vcp_table(market: str, auto_calc: bool = True):
     _is_us    = market in ("NASDAQ", "NYSE")
     cache_key = f"vcp_patterns_{market}_{_PS_PERIOD}"
     vcp_file_time = get_vcp_pattern_cache_info(market, _PS_PERIOD)
+
+    _force = st.session_state.pop("_force_rescan", False)
+
+    if _force and not _is_us:
+        # 강제 재스캔: 캐시 무시하고 새로 계산 (한국장만)
+        n_cands = "약 380종목" if market == "KOSPI" else "약 730종목"
+        status  = st.empty()
+        bar     = st.progress(0)
+        status.info(f"⏳ {market} 강제 재스캔 중... ({n_cands})")
+
+        def _cb_force(done, total):
+            pct = int(done / total * 100)
+            bar.progress(pct)
+            status.info(f"⏳ {market} 재스캔 중... {done}/{total}종목 ({pct}%)")
+
+        try:
+            df = scan_vcp_patterns(
+                market=market, period=_PS_PERIOD,
+                use_cache=False, progress_cb=_cb_force,
+            )
+            st.session_state[cache_key] = df
+        except Exception as e:
+            status.error(f"{market} 재스캔 실패: {e}")
+            bar.empty()
+            return
+        finally:
+            bar.empty()
+            status.empty()
+        st.rerun()
 
     if cache_key not in st.session_state:
         if vcp_file_time:
@@ -1933,9 +1962,9 @@ def _show_vcp_table(market: str, auto_calc: bool = True):
     # 미국장은 달러 포맷
     vcp_fmt = dict(_VCP_FMT)
     if _is_us:
-        vcp_fmt["피벗"]     = "${:,.2f}"
+        vcp_fmt["직전피벗"]  = "${:,.2f}"
         vcp_fmt["현재가"]   = "${:,.2f}"
-        vcp_fmt["베이스상단"] = "${:,.2f}"
+        vcp_fmt["최종피벗"] = "${:,.2f}"
 
     avail_cols = [c for c in _VCP_SHOW_COLS if c in df_vcp.columns]
     display_df = df_vcp[avail_cols].copy()
@@ -1977,10 +2006,8 @@ def show_pattern_scanner():
 
     col_ref, col_info, _ = st.columns([1, 4, 3])
     with col_ref:
-        if st.button("🔄 강제 재스캔", help="오늘 캐시를 삭제하고 전체 재스캔합니다 (미국장 제외)"):
-            today = datetime.now().strftime("%Y%m%d")
-            for f in (Path(__file__).parent / "cache").glob(f"vcp_pattern_*{today}.json"):
-                f.unlink(missing_ok=True)
+        if st.button("🔄 강제 재스캔", help="전체 재스캔 (한국장만, 새 캐시로 덮어쓰기)"):
+            st.session_state["_force_rescan"] = True
             for k in [k for k in st.session_state if k.startswith("vcp_patterns_")]:
                 del st.session_state[k]
             st.rerun()

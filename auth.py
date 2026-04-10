@@ -41,7 +41,7 @@ def _save_token(refresh_token: str):
     st.query_params["t"] = encoded
 
 
-def _load_token() -> str | None:
+def _load_token():
     """query_params에서 refresh_token 읽기"""
     encoded = st.query_params.get("t")
     if not encoded:
