@@ -1988,16 +1988,18 @@ def _show_vcp_table(market: str, auto_calc: bool = True):
         color_map=_vcp_color_map,
         col_widths={"티커": 90} if _is_us else {},
     )
-    selected = result["selected_rows"]
+    selected = result.get("selected_rows", None) if isinstance(result, dict) else None
     if selected is not None and len(selected) > 0:
-        row = selected[0]
-        st.session_state.view           = "chart"
-        st.session_state.chart_ticker   = row["종목코드"]
-        st.session_state.chart_name     = row.get("종목명", "")
-        st.session_state.chart_period   = _PS_PERIOD
-        st.session_state.sidebar_ticker = row["종목코드"]
-        st.session_state.return_to_view = "pattern_scanner"
-        st.rerun()
+        row = selected[0] if isinstance(selected[0], dict) else selected.iloc[0].to_dict() if hasattr(selected, 'iloc') else dict(selected[0])
+        ticker = row.get("종목코드", row.get("티커", ""))
+        if ticker:
+            st.session_state.view           = "chart"
+            st.session_state.chart_ticker   = ticker
+            st.session_state.chart_name     = row.get("종목명", "")
+            st.session_state.chart_period   = _PS_PERIOD
+            st.session_state.sidebar_ticker = ticker
+            st.session_state.return_to_view = "pattern_scanner"
+            st.rerun()
 
 
 def show_pattern_scanner():
