@@ -1835,17 +1835,17 @@ def show_market_indicators():
 
 _VCP_SHOW_COLS = [
     "종목코드", "종목명", "RS Score", "RS순위(%)",
-    "수축(T)", "수축강도(%)", "직전피벗", "현재가", "피벗거리(%)",
-    "최종피벗", "거래량비율(%)", "베이스기간(일)",
+    "최종피벗", "직전피벗", "현재가", "피벗거리(%)",
+    "수축(T)", "수축강도(%)", "베이스기간(일)", "거래량비율(%)",
 ]
 _VCP_FMT = {
     "RS Score":      "{:+.2f}",
     "RS순위(%)":     "{:.1f}%",
-    "수축강도(%)":   "{:.1f}%",
+    "최종피벗":      "{:,.0f}",
     "직전피벗":      "{:,.0f}",
     "현재가":        "{:,.0f}",
     "피벗거리(%)":   "{:.2f}%",
-    "최종피벗":      "{:,.0f}",
+    "수축강도(%)":   "{:.1f}%",
     "거래량비율(%)": "{:.1f}%",
 }
 _PS_PERIOD = 60  # Pattern Scanner 고정 기간
@@ -1857,9 +1857,10 @@ def _show_vcp_table(market: str, auto_calc: bool = True):
     cache_key = f"vcp_patterns_{market}_{_PS_PERIOD}"
     vcp_file_time = get_vcp_pattern_cache_info(market, _PS_PERIOD)
 
-    _force = st.session_state.pop(f"_force_rescan_{market}", False)
+    _force = st.session_state.get(f"_force_rescan_{market}", False)
 
     if _force:
+        st.session_state.pop(f"_force_rescan_{market}", None)
         # 강제 재스캔: 캐시 무시하고 새로 계산
         n_cands = {"KOSPI": "약 380종목", "KOSDAQ": "약 730종목", "NASDAQ": "약 3500종목", "NYSE": "약 2000종목"}.get(market, "")
         status  = st.empty()
@@ -1884,7 +1885,6 @@ def _show_vcp_table(market: str, auto_calc: bool = True):
         finally:
             bar.empty()
             status.empty()
-        st.rerun()
 
     if cache_key not in st.session_state:
         if vcp_file_time:
