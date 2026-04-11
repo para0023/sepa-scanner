@@ -1999,6 +1999,7 @@ def _show_vcp_table(market: str, auto_calc: bool = True):
         st.session_state.chart_period   = _PS_PERIOD
         st.session_state.sidebar_ticker = ticker
         st.session_state.return_to_view = "pattern_scanner"
+        st.session_state["ps_return_tab"] = "us" if _is_us else "kr"
         st.rerun()
 
 
@@ -2008,7 +2009,11 @@ def show_pattern_scanner():
 
     st.caption("💡 매일 첫 실행 시 자동 재계산 · 당일은 캐시에서 즉시 로드")
 
-    tab_kr, tab_us = st.tabs(["🇰🇷 한국", "🇺🇸 미국"])
+    _ps_return_tab = st.session_state.pop("ps_return_tab", "kr")
+    if _ps_return_tab == "us":
+        tab_us, tab_kr = st.tabs(["🇺🇸 미국", "🇰🇷 한국"])
+    else:
+        tab_kr, tab_us = st.tabs(["🇰🇷 한국", "🇺🇸 미국"])
 
     with tab_kr:
         if st.button("🔄 강제 재스캔", key="rescan_kr", help="한국장 전체 재스캔 (새 캐시로 덮어쓰기)"):
