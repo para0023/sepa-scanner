@@ -2035,13 +2035,11 @@ def show_pattern_scanner():
                 st.session_state.pop(f"vcp_patterns_{m}_{_PS_PERIOD}", None)
             st.rerun()
         st.divider()
-        col_nasdaq, col_nyse = st.columns(2)
-        with col_nasdaq:
-            st.markdown("#### 📊 NASDAQ")
-            _show_vcp_table("NASDAQ", auto_calc=False)
-        with col_nyse:
-            st.markdown("#### 📊 NYSE")
-            _show_vcp_table("NYSE", auto_calc=False)
+        st.markdown("#### 📊 NASDAQ")
+        _show_vcp_table("NASDAQ", auto_calc=False)
+        st.divider()
+        st.markdown("#### 📊 NYSE")
+        _show_vcp_table("NYSE", auto_calc=False)
 
 
 # ══════════════════════════════════════════════════════════
