@@ -760,10 +760,11 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
     cache_key = f"ranking_{market}_{rank_period}"
 
     # 세션 캐시 없으면 파일 캐시 or 신규 계산
+    _force_rs = st.session_state.get("_force_rs_recalc", False)
     if cache_key not in st.session_state:
         cache_time = get_cache_info(market, rank_period)
 
-        if cache_time:
+        if cache_time and not _force_rs:
             # 파일 캐시 있음 → 조용히 로드
             df = calc_market_ranking(market=market, period=rank_period, top_n=100, min_price=_min_price)
             st.session_state[cache_key] = df
@@ -820,6 +821,9 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
             finally:
                 bar.empty()
                 status.empty()
+
+    # 강제 재계산 플래그 정리
+    st.session_state.pop("_force_rs_recalc", None)
 
     df = st.session_state[cache_key]
     if df is None or df.empty:
@@ -4734,15 +4738,11 @@ elif st.session_state.view in ("rs_scanner", "ranking"):
 
     col_ref, col_info, _ = st.columns([1, 4, 3])
     with col_ref:
-        if st.button("🔄 강제 재계산", help="오늘 캐시를 삭제하고 전체 재계산합니다"):
-            from market_ranking import CACHE_DIR
-            today = datetime.now().strftime("%Y%m%d")
-            # 오늘 파일 캐시만 삭제
-            for f in CACHE_DIR.glob(f"ranking_*{today}.json"):
-                f.unlink(missing_ok=True)
-            # 세션 캐시 삭제 (랭킹 + VCP + 2단계)
+        if st.button("🔄 강제 재계산", help="전체 재계산 (새 캐시로 덮어쓰기)"):
+            # 세션 캐시 클리어 → rerun 후 자동 재계산
             for k in [k for k in st.session_state if k.startswith("ranking_") or k.startswith("vcp_") or k.startswith("stage2_")]:
                 del st.session_state[k]
+            st.session_state["_force_rs_recalc"] = True
             st.rerun()
     with col_info:
         st.caption("💡 매일 첫 실행 시 자동 재계산 · 당일은 캐시에서 즉시 로드")
