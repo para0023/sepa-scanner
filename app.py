@@ -760,11 +760,10 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
     cache_key = f"ranking_{market}_{rank_period}"
 
     # 세션 캐시 없으면 파일 캐시 or 신규 계산
-    _force_rs = st.session_state.get("_force_rs_recalc", False)
     if cache_key not in st.session_state:
         cache_time = get_cache_info(market, rank_period)
 
-        if cache_time and not _force_rs:
+        if cache_time:
             # 파일 캐시 있음 → 조용히 로드
             df = calc_market_ranking(market=market, period=rank_period, top_n=100, min_price=_min_price)
             st.session_state[cache_key] = df
@@ -823,7 +822,7 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
                 status.empty()
 
     # 강제 재계산 플래그 정리
-    st.session_state.pop("_force_rs_recalc", None)
+    st.session_state.pop("_force_vcp_all", None)
 
     df = st.session_state[cache_key]
     if df is None or df.empty:
@@ -942,7 +941,7 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
         st.markdown("### 📉 VCP 후보 필터")
         vcp_file_time = get_filter_cache_info("vcp", market, rank_period)
         _vcp_force_key = f"_force_vcp_{market}_{rank_period}"
-        _vcp_force = st.session_state.pop(_vcp_force_key, False)
+        _vcp_force = st.session_state.pop(_vcp_force_key, False) or st.session_state.get("_force_vcp_all", False)
 
         if _vcp_force:
             with st.spinner("VCP 재계산 중..."):
@@ -986,6 +985,13 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
     if has_high:
         st.markdown("### 📈 2단계 시작 필터")
         s2_file_time = get_filter_cache_info("stage2", market, rank_period)
+        _s2_force_key = f"_force_s2_{market}_{rank_period}"
+        _s2_force = st.session_state.pop(_s2_force_key, False) or st.session_state.get("_force_vcp_all", False)
+
+        if _s2_force:
+            with st.spinner("2단계 재계산 중..."):
+                st.session_state[s2_cache_key] = apply_stage2_filter(df, market=market, period=rank_period, use_cache=False)
+
         if s2_cache_key not in st.session_state:
             if s2_file_time:
                 with st.spinner("2단계 캐시 로드 중..."):
@@ -997,7 +1003,8 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
                         st.session_state[s2_cache_key] = apply_stage2_filter(df, market=market, period=rank_period)
                     st.rerun()
                 st.caption("버튼을 클릭하면 상위 100종목의 2단계 시작 조건을 계산합니다. (하루 1회 캐시 저장)")
-        else:
+
+        if s2_cache_key in st.session_state:
             df_s2           = st.session_state[s2_cache_key]
             df_s2_low_base  = df_s2[(df_s2["고가대비(%)"] <= -20) & (df_s2["고가대비(%)"] >= -40)]
             df_s2_high_base = df_s2[(df_s2["고가대비(%)"] >  -20) & (df_s2["고가대비(%)"] <   -5)]
@@ -1016,9 +1023,7 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
             t = s2_file_time or "세션 계산"
             st.caption(f"종가 > MA20 > MA60  ·  MA20 기울기 양수  ·  MA60 기울기 ≥ 0  ·  캐시: {t}")
             if st.button("🔄 재계산", key=f"s2_recalc_{market}_{rank_period}"):
-                st.session_state.pop(s2_cache_key, None)
-                with st.spinner("2단계 재계산 중..."):
-                    st.session_state[s2_cache_key] = apply_stage2_filter(df, market=market, period=rank_period, use_cache=False)
+                st.session_state[_s2_force_key] = True
                 st.rerun()
 
     cache_time = get_cache_info(market, rank_period)
@@ -4738,11 +4743,10 @@ elif st.session_state.view in ("rs_scanner", "ranking"):
 
     col_ref, col_info, _ = st.columns([1, 4, 3])
     with col_ref:
-        if st.button("🔄 강제 재계산", help="전체 재계산 (새 캐시로 덮어쓰기)"):
-            # 세션 캐시 클리어 → rerun 후 자동 재계산
-            for k in [k for k in st.session_state if k.startswith("ranking_") or k.startswith("vcp_") or k.startswith("stage2_")]:
+        if st.button("🔄 VCP/2단계 재계산", help="VCP 필터 + 2단계 필터 재계산 (새 캐시로 덮어쓰기)"):
+            for k in [k for k in st.session_state if k.startswith("vcp_") or k.startswith("stage2_")]:
                 del st.session_state[k]
-            st.session_state["_force_rs_recalc"] = True
+            st.session_state["_force_vcp_all"] = True
             st.rerun()
     with col_info:
         st.caption("💡 매일 첫 실행 시 자동 재계산 · 당일은 캐시에서 즉시 로드")
