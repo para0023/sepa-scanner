@@ -937,6 +937,14 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
     if has_high:
         st.markdown("### 📉 VCP 후보 필터")
         vcp_file_time = get_filter_cache_info("vcp", market, rank_period)
+        _vcp_force_key = f"_force_vcp_{market}_{rank_period}"
+        _vcp_force = st.session_state.pop(_vcp_force_key, False)
+
+        if _vcp_force:
+            st.session_state.pop(vcp_cache_key, None)
+            with st.spinner("VCP 재계산 중..."):
+                st.session_state[vcp_cache_key] = apply_vcp_filter(df, market=market, period=rank_period, use_cache=False)
+
         if vcp_cache_key not in st.session_state:
             if vcp_file_time:
                 with st.spinner("VCP 캐시 로드 중..."):
@@ -948,7 +956,8 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
                         st.session_state[vcp_cache_key] = apply_vcp_filter(df, market=market, period=rank_period)
                     st.rerun()
                 st.caption("버튼을 클릭하면 상위 100종목의 VCP 조건을 계산합니다. (하루 1회 캐시 저장)")
-        else:
+
+        if vcp_cache_key in st.session_state:
             df_vcp           = st.session_state[vcp_cache_key]
             df_vcp_low_base  = df_vcp[(df_vcp["고가대비(%)"] <= -20) & (df_vcp["고가대비(%)"] >= -40)]
             df_vcp_high_base = df_vcp[(df_vcp["고가대비(%)"] >  -20) & (df_vcp["고가대비(%)"] <   -5)]
@@ -967,9 +976,7 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
             t = vcp_file_time or "세션 계산"
             st.caption(f"3일 평균 거래량 < 60일 평균 × 80%  ·  3일 고저폭 ≤ 5%  ·  캐시: {t}")
             if st.button("🔄 재계산", key=f"vcp_recalc_{market}_{rank_period}"):
-                st.session_state.pop(vcp_cache_key, None)
-                with st.spinner("VCP 재계산 중..."):
-                    st.session_state[vcp_cache_key] = apply_vcp_filter(df, market=market, period=rank_period, use_cache=False)
+                st.session_state[_vcp_force_key] = True
                 st.rerun()
 
     # ── 2단계 필터 ──────────────────────────────────────────
