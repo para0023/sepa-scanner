@@ -293,16 +293,17 @@ def apply_vcp_filter(
     df: pd.DataFrame,
     market: str = "KOSPI",
     period: int = 20,
-    vol_days: int = 5,
+    vol_days: int = 3,
     vol_period: int = 60,
-    range_pct: float = 7.0,
+    vol_ratio: float = 0.8,
+    range_pct: float = 5.0,
     use_cache: bool = True,
 ) -> pd.DataFrame:
     """
     캐시된 상위 종목에 대해 VCP 조건을 적용.
     당일 파일 캐시가 있으면 즉시 반환.
 
-    조건1: 최근 vol_days일 평균 거래량 < vol_period일 평균 거래량
+    조건1: 최근 vol_days일 평균 거래량 < vol_period일 평균 거래량 × vol_ratio
     조건2: 최근 vol_days일 각각 (고가-저가)/전일종가 ≤ range_pct%
     """
     if use_cache:
@@ -337,7 +338,7 @@ def apply_vcp_filter(
             if pd.isna(vol_ma) or vol_ma <= 0:
                 continue
 
-            vol_ok   = bool(last5["Volume"].mean() < vol_ma)
+            vol_ok   = bool(last5["Volume"].mean() < vol_ma * vol_ratio)
             hl_pct   = (last5["High"].values - last5["Low"].values) / prev_closes * 100
             range_ok = bool((hl_pct <= range_pct).all())
 
