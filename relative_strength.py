@@ -995,6 +995,7 @@ def build_chart_echarts(
             "type": "line", "name": label, "data": data,
             "xAxisIndex": 2, "yAxisIndex": 2,
             "lineStyle": {"color": color, "width": width},
+            "itemStyle": {"color": color},
             "symbol": "none", "smooth": False,
             "connectNulls": False,
         })
