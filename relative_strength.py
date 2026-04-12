@@ -1237,6 +1237,7 @@ def build_chart_echarts(
         "type": "line", "name": benchmark_name, "xAxisIndex": 2, "yAxisIndex": 2,
         "data": idx_data,
         "lineStyle": {"color": "#2ECC71", "width": 1, "type": "dashed"},
+        "itemStyle": {"color": "#2ECC71"},
         "symbol": "none", "smooth": False,
         "tooltip": {"show": False},
     })
@@ -1462,8 +1463,8 @@ def build_chart_echarts(
         f"{{rs|RS Score: {rs_score:+.2f} {rs_arrow}}}  "
         f"{{info||  종목 {stock_ret:+.2f}%  |  {benchmark_name} {index_ret:+.2f}%}}"
     )
-    # 3행: 벤치마크 범례 (MA 범례는 ECharts legend로 대체)
-    line3 = f"{{bench|┅}} {{bencht|{benchmark_name}}}"
+    # legend에 벤치마크 추가
+    option["legend"]["data"].append(benchmark_name)
 
     option["graphic"] = [
         {
@@ -1490,18 +1491,6 @@ def build_chart_echarts(
                     "rs":   {"fontSize": 12, "fontWeight": "bold",
                              "fill": "#D92B2B" if rs_score >= 0 else "#1A5ECC"},
                     "info": {"fontSize": 12, "fill": "#999"},
-                },
-            },
-        },
-        {
-            "type": "text",
-            "left": 20,
-            "top": 50,
-            "style": {
-                "text": line3,
-                "rich": {
-                    "bench":   {"fill": "#2ECC71", "fontSize": 11},
-                    "bencht":  {"fill": "#BBB", "fontSize": 10},
                 },
             },
         },
