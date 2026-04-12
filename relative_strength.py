@@ -1360,6 +1360,7 @@ def build_chart_echarts(
         "type": "line", "name": "Vol MA5", "xAxisIndex": 4, "yAxisIndex": 4,
         "data": vol_ma5_data,
         "lineStyle": {"color": "#29B6F6", "width": 1},
+        "itemStyle": {"color": "#29B6F6"},
         "symbol": "none",
     })
 
@@ -1368,6 +1369,7 @@ def build_chart_echarts(
         "type": "line", "name": "Vol MA60", "xAxisIndex": 4, "yAxisIndex": 4,
         "data": vol_ma_data,
         "lineStyle": {"color": "#F39C12", "width": 1},
+        "itemStyle": {"color": "#F39C12"},
         "symbol": "none",
     })
 
