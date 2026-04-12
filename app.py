@@ -941,7 +941,6 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
         _vcp_force = st.session_state.pop(_vcp_force_key, False)
 
         if _vcp_force:
-            st.session_state.pop(vcp_cache_key, None)
             with st.spinner("VCP 재계산 중..."):
                 st.session_state[vcp_cache_key] = apply_vcp_filter(df, market=market, period=rank_period, use_cache=False)
 
