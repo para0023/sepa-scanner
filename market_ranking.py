@@ -510,6 +510,7 @@ def _detect_vcp_single(
     min_t: int = 2,
     vol_days: int = 5,
     vol_period: int = 60,
+    max_daily_chg: float = 5.0,
 ) -> Optional[dict]:
     """단일 종목 VCP 패턴 감지"""
     try:
@@ -531,6 +532,13 @@ def _detect_vcp_single(
         if vol_ma <= 0 or vol_recent >= vol_ma:
             return None
         vol_ratio = round(vol_recent / vol_ma * 100, 1)
+
+        # 가격 변동폭 체크: 최근 vol_days일 전일 대비 등락률 절대값 ≤ max_daily_chg%
+        if len(close) >= vol_days + 1:
+            recent_close = close.iloc[-(vol_days + 1):]
+            daily_chg = recent_close.pct_change().dropna().abs() * 100
+            if (daily_chg > max_daily_chg).any():
+                return None
 
         # ── 2단계 조건 (스탠 와인스타인 기준) ──────────────
         if len(close) < 65:
