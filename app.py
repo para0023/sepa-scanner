@@ -759,6 +759,33 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
 
     cache_key = f"ranking_{market}_{rank_period}"
 
+    # 강제 재계산 플래그
+    _force_all = st.session_state.get("_force_rs_all", False)
+
+    # 강제 재계산: 캐시 무시하고 새로 계산
+    if _force_all:
+        n_cands = {"KOSPI": "약 951종목", "KOSDAQ": "약 1820종목", "NASDAQ": "약 3500종목", "NYSE": "약 2000종목"}.get(market, "")
+        status = st.empty()
+        bar = st.progress(0)
+        status.info(f"⏳ {market} 강제 재계산 중... ({n_cands})")
+
+        def _cb_force_rs(done, total):
+            pct = int(done / total * 100)
+            bar.progress(pct)
+            status.info(f"⏳ {market} 재계산 중... {done}/{total}종목 ({pct}%)")
+
+        try:
+            df = calc_market_ranking(market=market, period=rank_period,
+                                     top_n=100, min_price=_min_price, progress_cb=_cb_force_rs, use_cache=False)
+            st.session_state[cache_key] = df
+        except Exception as e:
+            status.error(f"{market} 재계산 실패: {e}")
+            bar.empty()
+            return
+        finally:
+            bar.empty()
+            status.empty()
+
     # 세션 캐시 없으면 파일 캐시 or 신규 계산
     if cache_key not in st.session_state:
         cache_time = get_cache_info(market, rank_period)
@@ -822,7 +849,7 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
                 status.empty()
 
     # 강제 재계산 플래그 정리
-    st.session_state.pop("_force_vcp_all", None)
+    st.session_state.pop("_force_rs_all", None)
 
     df = st.session_state[cache_key]
     if df is None or df.empty:
@@ -941,7 +968,7 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
         st.markdown("### 📉 VCP 후보 필터")
         vcp_file_time = get_filter_cache_info("vcp", market, rank_period)
         _vcp_force_key = f"_force_vcp_{market}_{rank_period}"
-        _vcp_force = st.session_state.pop(_vcp_force_key, False) or st.session_state.get("_force_vcp_all", False)
+        _vcp_force = st.session_state.pop(_vcp_force_key, False) or st.session_state.get("_force_rs_all", False)
 
         if _vcp_force:
             with st.spinner("VCP 재계산 중..."):
@@ -986,7 +1013,7 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
         st.markdown("### 📈 2단계 시작 필터")
         s2_file_time = get_filter_cache_info("stage2", market, rank_period)
         _s2_force_key = f"_force_s2_{market}_{rank_period}"
-        _s2_force = st.session_state.pop(_s2_force_key, False) or st.session_state.get("_force_vcp_all", False)
+        _s2_force = st.session_state.pop(_s2_force_key, False) or st.session_state.get("_force_rs_all", False)
 
         if _s2_force:
             with st.spinner("2단계 재계산 중..."):
@@ -4743,10 +4770,8 @@ elif st.session_state.view in ("rs_scanner", "ranking"):
 
     col_ref, col_info, _ = st.columns([1, 4, 3])
     with col_ref:
-        if st.button("🔄 VCP/2단계 재계산", help="VCP 필터 + 2단계 필터 재계산 (새 캐시로 덮어쓰기)"):
-            for k in [k for k in st.session_state if k.startswith("vcp_") or k.startswith("stage2_")]:
-                del st.session_state[k]
-            st.session_state["_force_vcp_all"] = True
+        if st.button("🔄 강제 재계산", help="RS 랭킹 + VCP + 2단계 전체 재계산 (새 캐시로 덮어쓰기)"):
+            st.session_state["_force_rs_all"] = True
             st.rerun()
     with col_info:
         st.caption("💡 매일 첫 실행 시 자동 재계산 · 당일은 캐시에서 즉시 로드")

@@ -969,17 +969,20 @@ def calc_market_ranking(
     min_price: float = 0,
     progress_cb=None,
     today_only: bool = False,
+    use_cache: bool = True,
 ) -> pd.DataFrame:
     """
     시장 전체 RS 랭킹 반환.
     - 당일 캐시 있음 → 즉시 반환
     - 당일 캐시 없음 → 전체 계산 후 저장 → 반환
     today_only=True: 오늘 캐시만 확인 (precalc용 — 폴백 안 함)
+    use_cache=False: 캐시 무시하고 강제 재계산
     """
     # ① 캐시 확인
-    cached = _load_cache(market, period, today_only=today_only)
-    if cached is not None:
-        return cached.head(top_n)
+    if use_cache:
+        cached = _load_cache(market, period, today_only=today_only)
+        if cached is not None:
+            return cached.head(top_n)
 
     # ② 벤치마크 1회만 가져오기
     cfg            = MARKET_CONFIG[market]
