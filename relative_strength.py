@@ -1202,6 +1202,17 @@ def build_chart_echarts(
              "start": zoom_start, "end": 100},
         ],
         "toolbox": {"show": False},
+        "legend": {
+            "show": True,
+            "data": ["MA5", "MA20", "MA60", "WMA100", "MA120", "MA200"],
+            "left": 20,
+            "top": 50,
+            "textStyle": {"color": "#BBB", "fontSize": 10},
+            "itemWidth": 18,
+            "itemHeight": 2,
+            "itemGap": 12,
+            "inactiveColor": "#555",
+        },
         "axisPointer": {
             "link": [{"xAxisIndex": "all"}],
             "lineStyle": {"color": "rgba(255,255,255,0.4)", "width": 1},
@@ -1451,12 +1462,8 @@ def build_chart_echarts(
         f"{{rs|RS Score: {rs_score:+.2f} {rs_arrow}}}  "
         f"{{info||  종목 {stock_ret:+.2f}%  |  {benchmark_name} {index_ret:+.2f}%}}"
     )
-    # 3행: MA 범례
-    line3 = (
-        "{ma5|━} {ma5t|MA5}  {ma20|━} {ma20t|MA20}  {ma60|━} {ma60t|MA60}  "
-        "{wma100|━} {wma100t|WMA100}  {ma120|━} {ma120t|MA120}  {ma200|━} {ma200t|MA200}  "
-        f"{{bench|┅}} {{bencht|{benchmark_name}}}"
-    )
+    # 3행: 벤치마크 범례 (MA 범례는 ECharts legend로 대체)
+    line3 = f"{{bench|┅}} {{bencht|{benchmark_name}}}"
 
     option["graphic"] = [
         {
@@ -1493,18 +1500,6 @@ def build_chart_echarts(
             "style": {
                 "text": line3,
                 "rich": {
-                    "ma5":     {"fill": "#FF6D00", "fontSize": 11},
-                    "ma5t":    {"fill": "#BBB", "fontSize": 10},
-                    "ma20":    {"fill": "#8A2BE2", "fontSize": 11},
-                    "ma20t":   {"fill": "#BBB", "fontSize": 10},
-                    "ma60":    {"fill": "#008000", "fontSize": 11},
-                    "ma60t":   {"fill": "#BBB", "fontSize": 10},
-                    "wma100":  {"fill": "#FFFFFF", "fontSize": 11},
-                    "wma100t": {"fill": "#BBB", "fontSize": 10},
-                    "ma120":   {"fill": "#008B8B", "fontSize": 11},
-                    "ma120t":  {"fill": "#BBB", "fontSize": 10},
-                    "ma200":   {"fill": "#C0392B", "fontSize": 11},
-                    "ma200t":  {"fill": "#BBB", "fontSize": 10},
                     "bench":   {"fill": "#2ECC71", "fontSize": 11},
                     "bencht":  {"fill": "#BBB", "fontSize": 10},
                 },
