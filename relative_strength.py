@@ -1026,7 +1026,8 @@ def build_chart_echarts(
         (_low - _prev_close).abs(),
     ], axis=1).max(axis=1)
     _atr20 = _tr.rolling(20, min_periods=1).mean()
-    atr_data = [round(float(v), 2) if not np.isnan(v) else None for v in _atr20.values]
+    _atr_pct = _atr20 / stock_df["Close"] * 100
+    atr_data = [round(float(v), 2) if not np.isnan(v) else None for v in _atr_pct.values]
 
     # ── 매매 마커 ──
     buy_scatter, sell_scatter = [], []
@@ -1217,15 +1218,15 @@ def build_chart_echarts(
             # 5: 등락률 (숨김, 주가 grid에 겹침 — 호버 전용)
             {"type": "value", "gridIndex": 2, "show": False,
              "axisPointer": {"show": False}},
-            # 6: ATR
+            # 6: ATR(%)
             {"type": "value", "gridIndex": 5, "scale": True, "splitNumber": 2,
-             "axisLabel": {"fontSize": 10, "color": "#AAA"},
+             "axisLabel": {"fontSize": 10, "color": "#AAA", "formatter": "{value}%"},
              "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)", "type": "dotted"}},
              "axisLine": {"show": False},
              "position": "right",
              "axisPointer": {"show": True, "snap": False,
                              "label": {"show": True, "precision": 0}},
-             "name": "ATR", "nameLocation": "end",
+             "name": "ATR(%)", "nameLocation": "end",
              "nameTextStyle": {"fontSize": 10, "color": "#888"}},
         ],
         "dataZoom": [
@@ -1442,7 +1443,7 @@ def build_chart_echarts(
 
     # ATR(20) Line
     option["series"].append({
-        "type": "line", "name": "ATR(20)", "xAxisIndex": 5, "yAxisIndex": 6,
+        "type": "line", "name": "ATR(%)", "xAxisIndex": 5, "yAxisIndex": 6,
         "data": atr_data,
         "lineStyle": {"color": "#FF9800", "width": 1.5},
         "itemStyle": {"color": "#FF9800"},
