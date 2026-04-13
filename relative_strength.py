@@ -1111,20 +1111,23 @@ def build_chart_echarts(
         "animation": False,
         "backgroundColor": "#1a1a2e",
         "title": [
-            {"text": "진입신호", "left": "1%", "top": "12.5%",
-             "textAlign": "left", "textVerticalAlign": "middle",
+            {"text": "진입신호", "left": "1%", "top": "9%",
+             "textAlign": "left", "textVerticalAlign": "top",
              "textStyle": {"fontSize": 11, "color": "#CCC", "fontWeight": "bold"}},
-            {"text": "분배신호", "left": "1%", "top": "15.5%",
-             "textAlign": "left", "textVerticalAlign": "middle",
+            {"text": "분배신호", "left": "1%", "top": "12%",
+             "textAlign": "left", "textVerticalAlign": "top",
              "textStyle": {"fontSize": 11, "color": "#CCC", "fontWeight": "bold"}},
-            {"text": "주가", "left": "1%", "top": "39.5%",
-             "textAlign": "left", "textVerticalAlign": "middle",
+            {"text": "주가", "left": "1%", "top": "16%",
+             "textAlign": "left", "textVerticalAlign": "top",
              "textStyle": {"fontSize": 11, "color": "#CCC", "fontWeight": "bold"}},
-            {"text": "거래량", "left": "1%", "top": "67%",
-             "textAlign": "left", "textVerticalAlign": "middle",
+            {"text": "거래량", "left": "1%", "top": "50%",
+             "textAlign": "left", "textVerticalAlign": "top",
              "textStyle": {"fontSize": 11, "color": "#CCC", "fontWeight": "bold"}},
-            {"text": "RS Line", "left": "1%", "top": "82.5%",
-             "textAlign": "left", "textVerticalAlign": "middle",
+            {"text": "RS", "left": "1%", "top": "62%",
+             "textAlign": "left", "textVerticalAlign": "top",
+             "textStyle": {"fontSize": 11, "color": "#CCC", "fontWeight": "bold"}},
+            {"text": "ATR", "left": "1%", "top": "74%",
+             "textAlign": "left", "textVerticalAlign": "top",
              "textStyle": {"fontSize": 11, "color": "#CCC", "fontWeight": "bold"}},
         ],
         "grid": [
@@ -1536,21 +1539,6 @@ def build_chart_echarts(
             },
         },
     ]
-
-    # 좌측 패널 제목 (각 그리드 top에 맞춤)
-    _panel_labels = [
-        ("진입신호", "9%"),    # grid 1 top
-        ("분배신호", "12%"),   # grid 0 top
-        ("주가",     "16%"),   # grid 2 top
-        ("거래량",   "50%"),   # grid 4 top
-        ("RS",       "62%"),   # grid 3 top
-        ("ATR",      "74%"),   # grid 5 top
-    ]
-    for label, top in _panel_labels:
-        option["graphic"].append({
-            "type": "text", "left": 5, "top": top,
-            "style": {"text": label, "fontSize": 10, "fill": "#888"},
-        })
 
     # ════════════════════════════════════════════
     # 렌더링
