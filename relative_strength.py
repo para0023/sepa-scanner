@@ -1230,17 +1230,20 @@ def build_chart_echarts(
              "start": zoom_start, "end": 100},
         ],
         "toolbox": {"show": False},
-        "legend": {
-            "show": True,
-            "data": ["MA5", "MA20", "MA60", "WMA100", "MA120", "MA200"],
-            "left": 20,
-            "top": 50,
-            "textStyle": {"color": "#BBB", "fontSize": 10},
-            "itemWidth": 18,
-            "itemHeight": 2,
-            "itemGap": 12,
-            "inactiveColor": "#555",
-        },
+        "legend": [
+            {
+                "show": True,
+                "data": ["MA5", "MA20", "MA60", "WMA100", "MA120", "MA200"],
+                "left": 20,
+                "top": 50,
+                "textStyle": {"color": "#BBB", "fontSize": 10},
+                "itemWidth": 18,
+                "itemHeight": 2,
+                "itemGap": 12,
+                "inactiveColor": "#555",
+                "selector": False,
+            },
+        ],
         "axisPointer": {
             "link": [{"xAxisIndex": "all"}],
             "lineStyle": {"color": "rgba(255,255,255,0.4)", "width": 1},
@@ -1502,7 +1505,7 @@ def build_chart_echarts(
         f"{{info||  종목 {stock_ret:+.2f}%  |  {benchmark_name} {index_ret:+.2f}%}}"
     )
     # legend에 벤치마크 추가
-    option["legend"]["data"].append(benchmark_name)
+    option["legend"][0]["data"].append(benchmark_name)
 
     option["graphic"] = [
         {
