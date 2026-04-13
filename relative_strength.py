@@ -1391,7 +1391,7 @@ def build_chart_echarts(
 
     # 거래량 바
     option["series"].append({
-        "type": "bar", "name": "거래량", "xAxisIndex": 4, "yAxisIndex": 4,
+        "type": "bar", "name": "   ", "xAxisIndex": 4, "yAxisIndex": 4,
         "data": vol_data, "barWidth": "60%",
     })
 
@@ -1415,7 +1415,7 @@ def build_chart_echarts(
 
     # RS Line
     option["series"].append({
-        "type": "line", "name": "RS Line", "xAxisIndex": 3, "yAxisIndex": 3,
+        "type": "line", "name": "    ", "xAxisIndex": 3, "yAxisIndex": 3,
         "data": rs_data,
         "lineStyle": {"color": "#D92B2B", "width": 2},
         "symbol": "none",
@@ -1424,7 +1424,7 @@ def build_chart_echarts(
 
     # RS 기준선 (100)
     option["series"].append({
-        "type": "line", "name": "RS=100", "xAxisIndex": 3, "yAxisIndex": 3,
+        "type": "line", "name": "     ", "xAxisIndex": 3, "yAxisIndex": 3,
         "data": [],
         "markLine": {
             "silent": True, "symbol": "none",
@@ -1447,7 +1447,7 @@ def build_chart_echarts(
     # 진입신호 (단칸 색상 블록, 호버로 수치 확인)
     entry_vals = [round(float(signal.iloc[i]), 2) for i in range(N)]
     option["series"].append({
-        "type": "bar", "name": "진입신호", "xAxisIndex": 1, "yAxisIndex": 1,
+        "type": "bar", "name": " ", "xAxisIndex": 1, "yAxisIndex": 1,
         "data": [{"value": 1, "itemStyle": {"color": entry_colors[i]}}
                  for i in range(N)],
         "barWidth": "100%", "barGap": "0%", "barCategoryGap": "0%",
@@ -1464,7 +1464,7 @@ def build_chart_echarts(
     # 분배신호 (단칸 색상 블록, 호버로 수치 확인)
     expand_vals = [round(float(sell_signal.iloc[i]), 2) for i in range(N)]
     option["series"].append({
-        "type": "bar", "name": "분배신호", "xAxisIndex": 0, "yAxisIndex": 0,
+        "type": "bar", "name": "  ", "xAxisIndex": 0, "yAxisIndex": 0,
         "data": [{"value": 1, "itemStyle": {"color": expand_colors[i]}}
                  for i in range(N)],
         "barWidth": "100%", "barGap": "0%", "barCategoryGap": "0%",
