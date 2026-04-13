@@ -258,8 +258,8 @@ with st.sidebar:
     else:
         period = st.slider(
             "분석 기간 (거래일)",
-            min_value=10, max_value=250, value=20, step=5,
-            help="기본 20일. 길수록 중장기 추세가 보입니다.",
+            min_value=10, max_value=250, value=60, step=5,
+            help="기본 60일. 길수록 중장기 추세가 보입니다.",
         )
 
     benchmark_mode = st.radio("벤치마크", ["자동 선택", "직접 입력"], horizontal=True)
