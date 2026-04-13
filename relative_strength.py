@@ -1188,9 +1188,7 @@ def build_chart_echarts(
              "axisLine": {"show": False},
              "position": "right",
              "axisPointer": {"show": True, "snap": False,
-                             "label": {"show": True, "precision": 0 if is_kr else 2}},
-             "nameTextStyle": {"fontSize": 10, "color": "#888"},
-             "name": f"주가 ({'원' if is_kr else 'USD'})", "nameLocation": "end"},
+                             "label": {"show": True, "precision": 0 if is_kr else 2}}},
             # 3: RS
             {"type": "value", "gridIndex": 3, "scale": True, "splitNumber": 3,
              "axisLabel": {"fontSize": 10, "color": "#AAA"},
@@ -1198,9 +1196,7 @@ def build_chart_echarts(
              "axisLine": {"show": False},
              "position": "right",
              "axisPointer": {"show": True, "snap": False,
-                             "label": {"show": True, "precision": 2}},
-             "name": "RS", "nameLocation": "end",
-             "nameTextStyle": {"fontSize": 10, "color": "#888"}},
+                             "label": {"show": True, "precision": 2}}},
             # 4: 거래량
             {"type": "value", "gridIndex": 4, "scale": True, "splitNumber": 2,
              "axisLabel": {"fontSize": 10, "color": "#AAA"},
@@ -1208,9 +1204,7 @@ def build_chart_echarts(
              "axisLine": {"show": False},
              "position": "right",
              "axisPointer": {"show": True, "snap": False,
-                             "label": {"show": True, "precision": 0}},
-             "name": "거래량", "nameLocation": "end",
-             "nameTextStyle": {"fontSize": 10, "color": "#888"}},
+                             "label": {"show": True, "precision": 0}}},
             # 5: 등락률 (숨김, 주가 grid에 겹침 — 호버 전용)
             {"type": "value", "gridIndex": 2, "show": False,
              "axisPointer": {"show": False}},
@@ -1221,9 +1215,7 @@ def build_chart_echarts(
              "axisLine": {"show": False},
              "position": "right",
              "axisPointer": {"show": True, "snap": False,
-                             "label": {"show": True, "precision": 0}},
-             "name": "ATR", "nameLocation": "end",
-             "nameTextStyle": {"fontSize": 10, "color": "#888"}},
+                             "label": {"show": True, "precision": 0}}},
         ],
         "dataZoom": [
             {"type": "inside", "xAxisIndex": list(range(6)),
@@ -1532,6 +1524,19 @@ def build_chart_echarts(
                 },
             },
         },
+        # 패널 제목 (왼쪽 배치)
+        {"type": "text", "left": 5, "top": "8%",
+         "style": {"text": "진입신호", "fontSize": 10, "fill": "#888"}},
+        {"type": "text", "left": 5, "top": "11%",
+         "style": {"text": "분배신호", "fontSize": 10, "fill": "#888"}},
+        {"type": "text", "left": 5, "top": "15%",
+         "style": {"text": "주가", "fontSize": 10, "fill": "#888"}},
+        {"type": "text", "left": 5, "top": "49%",
+         "style": {"text": "거래량", "fontSize": 10, "fill": "#888"}},
+        {"type": "text", "left": 5, "top": "61%",
+         "style": {"text": "RS", "fontSize": 10, "fill": "#888"}},
+        {"type": "text", "left": 5, "top": "73%",
+         "style": {"text": "ATR", "fontSize": 10, "fill": "#888"}},
     ]
 
     # ════════════════════════════════════════════
