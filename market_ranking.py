@@ -270,6 +270,22 @@ def _calc_rs_single(ticker: str, name: str, index_df: pd.DataFrame, period: int)
         s, i, _  = trim_to_period(stock_full, index_full, mas_full, period)
         rs_line, rs_score, stock_ret, index_ret = calculate_ibd_rs(s, i)
 
+        # ATR(20) 계산
+        atr_val = None
+        atr_pct = None
+        if "High" in stock_full.columns and "Low" in stock_full.columns and len(stock_full) >= 21:
+            high = stock_full["High"]
+            low = stock_full["Low"]
+            prev_close = stock_full["Close"].shift(1)
+            tr = pd.concat([
+                high - low,
+                (high - prev_close).abs(),
+                (low - prev_close).abs(),
+            ], axis=1).max(axis=1)
+            atr_20 = float(tr.iloc[-20:].mean())
+            atr_val = round(atr_20, 2)
+            atr_pct = round(atr_20 / float(current_price) * 100, 2)
+
         return {
             "종목코드":    ticker,
             "종목명":      name,
@@ -280,6 +296,8 @@ def _calc_rs_single(ticker: str, name: str, index_df: pd.DataFrame, period: int)
             "현재가":      round(current_price, 2),
             "52주신고가":  round(high_52w, 2),
             "고가대비(%)": pct_from_high,
+            "ATR(20)":     atr_val,
+            "ATR(%)":      atr_pct,
         }
     except Exception:
         return None
@@ -678,6 +696,22 @@ def _detect_vcp_single(
         if near_pivot_dist < 0:
             return None
 
+        # ATR(20) 계산
+        atr_val = None
+        atr_pct = None
+        if "High" in df.columns and "Low" in df.columns and len(df) >= 21:
+            high = df["High"]
+            low = df["Low"]
+            prev_close = close.shift(1)
+            tr = pd.concat([
+                high - low,
+                (high - prev_close).abs(),
+                (low - prev_close).abs(),
+            ], axis=1).max(axis=1)
+            atr_20 = float(tr.iloc[-20:].mean())
+            atr_val = round(atr_20)
+            atr_pct = round(atr_20 / current_price * 100, 2)
+
         return {
             "종목코드":      ticker,
             "종목명":        name,
@@ -691,6 +725,8 @@ def _detect_vcp_single(
             "최종피벗":      final_pivot,
             "거래량비율(%)": vol_ratio,
             "베이스기간(일)": base_period,
+            "ATR(20)":       atr_val,
+            "ATR(%)":        atr_pct,
         }
     except Exception:
         return None

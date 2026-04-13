@@ -936,7 +936,7 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
                 st.rerun()
 
     # ── VCP / 2단계 탭 공통 렌더러 ────────────────────────
-    filter_show_cols = ["종목코드", "종목명", "현재가", "RS Score", "RS Line", "종목수익률", "지수수익률", "고가대비(%)"]
+    filter_show_cols = ["종목코드", "종목명", "현재가", "RS Score", "RS Line", "종목수익률", "지수수익률", "고가대비(%)", "ATR(20)", "ATR(%)"]
 
     def _render_filter_table(data, key: str, tab_idx: int = 0):
         if data.empty:
@@ -1879,6 +1879,7 @@ _VCP_SHOW_COLS = [
     "종목코드", "종목명", "RS Score", "RS순위(%)",
     "최종피벗", "직전피벗", "현재가", "피벗거리(%)",
     "수축(T)", "수축강도(%)", "베이스기간(일)", "거래량비율(%)",
+    "ATR(20)", "ATR(%)",
 ]
 _VCP_FMT = {
     "RS Score":      "{:+.2f}",
@@ -1889,6 +1890,8 @@ _VCP_FMT = {
     "피벗거리(%)":   "{:.2f}%",
     "수축강도(%)":   "{:.1f}%",
     "거래량비율(%)": "{:.1f}%",
+    "ATR(20)":       "{:,.0f}",
+    "ATR(%)":        "{:.2f}%",
 }
 _PS_PERIOD = 60  # Pattern Scanner 고정 기간
 
@@ -2007,6 +2010,7 @@ def _show_vcp_table(market: str, auto_calc: bool = True):
         vcp_fmt["직전피벗"]  = "${:,.2f}"
         vcp_fmt["현재가"]   = "${:,.2f}"
         vcp_fmt["최종피벗"] = "${:,.2f}"
+        vcp_fmt["ATR(20)"]  = "${:,.2f}"
 
     avail_cols = [c for c in _VCP_SHOW_COLS if c in df_vcp.columns]
     display_df = df_vcp[avail_cols].copy()
