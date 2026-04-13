@@ -906,6 +906,8 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
             show_cols = ["종목코드", "종목명", "현재가", "RS Score", "RS Line", "종목수익률", "지수수익률"]
             if has_high:
                 show_cols += ["고가대비(%)"]
+            show_cols += ["ATR(20)", "ATR(%)"]
+            show_cols = [c for c in show_cols if c in data.columns]
             display_df = data[show_cols].reset_index(drop=True)
             display_df.index += 1
             display_df.index.name = "순위"
