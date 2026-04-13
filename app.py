@@ -944,8 +944,11 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
         if data.empty:
             st.info("해당 조건의 종목이 없습니다.")
             return
-        avail = [c for c in filter_show_cols if c in data.columns]
-        disp = data[avail].reset_index(drop=True)
+        disp = data.copy()
+        for c in filter_show_cols:
+            if c not in disp.columns:
+                disp[c] = None
+        disp = disp[[c for c in filter_show_cols if c in disp.columns]].reset_index(drop=True)
         _n_rows = len(disp)
         _height = 250 if _n_rows <= 5 else (350 if _n_rows <= 10 else 450)
         _filter_color_map = {
