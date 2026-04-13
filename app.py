@@ -278,12 +278,12 @@ with st.sidebar:
         st.session_state.sidebar_ticker = ""
         st.rerun()
 
-    if st.button("📊 RS Scanner", use_container_width=True):
-        st.session_state.view = "rs_scanner"
-        st.rerun()
-
     if st.button("🔍 SEPA Scanner", use_container_width=True):
         st.session_state.view = "pattern_scanner"
+        st.rerun()
+
+    if st.button("📊 RS Scanner", use_container_width=True):
+        st.session_state.view = "rs_scanner"
         st.rerun()
 
     if st.button("🔻 Short Scanner", use_container_width=True):
