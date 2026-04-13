@@ -1129,12 +1129,12 @@ def build_chart_echarts(
         ],
         "grid": [
             # tooltip 순서 제어를 위해 gridIndex 재배치
-            {"left": LEFT, "right": RIGHT, "top": "15%", "height": "3%"},   # 0: 분배신호
-            {"left": LEFT, "right": RIGHT, "top": "12%", "height": "3%"},   # 1: 진입신호
-            {"left": LEFT, "right": RIGHT, "top": "19%", "height": "36%"},  # 2: 주가
-            {"left": LEFT, "right": RIGHT, "top": "67%", "height": "12%"},  # 3: RS
-            {"left": LEFT, "right": RIGHT, "top": "56%", "height": "10%"},  # 4: 거래량
-            {"left": LEFT, "right": RIGHT, "top": "80%", "height": "10%"},  # 5: ATR
+            {"left": LEFT, "right": RIGHT, "top": "12%", "height": "3%"},   # 0: 분배신호
+            {"left": LEFT, "right": RIGHT, "top": "9%",  "height": "3%"},   # 1: 진입신호
+            {"left": LEFT, "right": RIGHT, "top": "16%", "height": "33%"},  # 2: 주가
+            {"left": LEFT, "right": RIGHT, "top": "62%", "height": "11%"},  # 3: RS
+            {"left": LEFT, "right": RIGHT, "top": "50%", "height": "11%"},  # 4: 거래량
+            {"left": LEFT, "right": RIGHT, "top": "74%", "height": "11%"},  # 5: ATR
         ],
         "xAxis": [
             # 0: 분배신호 — 라벨 숨김
@@ -1537,7 +1537,7 @@ def build_chart_echarts(
     # ════════════════════════════════════════════
     # 렌더링
     # ════════════════════════════════════════════
-    st_echarts(options=option, height="1060px", key=f"ec_{ticker}_{period}")
+    st_echarts(options=option, height="1100px", key=f"ec_{ticker}_{period}")
 
 
 # ─────────────────────────────────────────────
