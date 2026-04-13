@@ -1016,6 +1016,18 @@ def build_chart_echarts(
     rs_aligned = rs_line.reindex(stock_df.index).ffill().bfill()
     rs_data = [round(float(v), 2) for v in rs_aligned.values]
 
+    # ── ATR(20) ──
+    _high = stock_df["High"] if "High" in stock_df.columns else stock_df["Close"]
+    _low = stock_df["Low"] if "Low" in stock_df.columns else stock_df["Close"]
+    _prev_close = stock_df["Close"].shift(1)
+    _tr = pd.concat([
+        _high - _low,
+        (_high - _prev_close).abs(),
+        (_low - _prev_close).abs(),
+    ], axis=1).max(axis=1)
+    _atr20 = _tr.rolling(20, min_periods=1).mean()
+    atr_data = [round(float(v), 2) if not np.isnan(v) else None for v in _atr20.values]
+
     # ── 매매 마커 ──
     buy_scatter, sell_scatter = [], []
     avg_buy_price = None
@@ -1117,12 +1129,12 @@ def build_chart_echarts(
         ],
         "grid": [
             # tooltip 순서 제어를 위해 gridIndex 재배치
-            # 비호버 패널은 내림차순(4→3→1→0)으로 표시됨
             {"left": LEFT, "right": RIGHT, "top": "15%", "height": "3%"},   # 0: 분배신호
             {"left": LEFT, "right": RIGHT, "top": "12%", "height": "3%"},   # 1: 진입신호
-            {"left": LEFT, "right": RIGHT, "top": "19%", "height": "41%"},  # 2: 주가
-            {"left": LEFT, "right": RIGHT, "top": "74%", "height": "17%"},  # 3: RS
-            {"left": LEFT, "right": RIGHT, "top": "61%", "height": "12%"},  # 4: 거래량
+            {"left": LEFT, "right": RIGHT, "top": "19%", "height": "36%"},  # 2: 주가
+            {"left": LEFT, "right": RIGHT, "top": "67%", "height": "12%"},  # 3: RS
+            {"left": LEFT, "right": RIGHT, "top": "56%", "height": "10%"},  # 4: 거래량
+            {"left": LEFT, "right": RIGHT, "top": "80%", "height": "10%"},  # 5: ATR
         ],
         "xAxis": [
             # 0: 분배신호 — 라벨 숨김
@@ -1143,18 +1155,24 @@ def build_chart_echarts(
              "axisLine": {"lineStyle": {"color": "rgba(255,255,255,0.2)"}},
              "splitLine": {"show": False},
              "axisPointer": {"label": {"show": False}}},
-            # 3: RS 패널 하단 날짜 (최하단 패널)
+            # 3: RS — 라벨 숨김
             {"type": "category", "data": dates, "gridIndex": 3,
-             "axisLabel": {"show": True, "fontSize": 10, "color": "#AAA",
-                           "formatter": "{value}"},
-             "axisTick": {"show": True},
-             "axisLine": {"lineStyle": {"color": "rgba(255,255,255,0.2)"}},
-             "splitLine": {"show": False}},
+             "axisLabel": {"show": False}, "axisTick": {"show": False},
+             "axisLine": {"show": False}, "splitLine": {"show": False},
+             "axisPointer": {"label": {"show": False}}},
+
             # 4: 거래량 — 라벨 숨김
             {"type": "category", "data": dates, "gridIndex": 4,
              "axisLabel": {"show": False}, "axisTick": {"show": False},
              "axisLine": {"show": False}, "splitLine": {"show": False},
              "axisPointer": {"label": {"show": False}}},
+            # 5: ATR 패널 하단 날짜 (최하단)
+            {"type": "category", "data": dates, "gridIndex": 5,
+             "axisLabel": {"show": True, "fontSize": 10, "color": "#AAA",
+                           "formatter": "{value}"},
+             "axisTick": {"show": True},
+             "axisLine": {"lineStyle": {"color": "rgba(255,255,255,0.2)"}},
+             "splitLine": {"show": False}},
         ],
         "yAxis": [
             # 0: 분배신호 (숨김)
@@ -1196,9 +1214,19 @@ def build_chart_echarts(
             # 5: 등락률 (숨김, 주가 grid에 겹침 — 호버 전용)
             {"type": "value", "gridIndex": 2, "show": False,
              "axisPointer": {"show": False}},
+            # 6: ATR
+            {"type": "value", "gridIndex": 5, "scale": True, "splitNumber": 2,
+             "axisLabel": {"fontSize": 10, "color": "#AAA"},
+             "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)", "type": "dotted"}},
+             "axisLine": {"show": False},
+             "position": "right",
+             "axisPointer": {"show": True, "snap": False,
+                             "label": {"show": True, "precision": 0}},
+             "name": "ATR", "nameLocation": "end",
+             "nameTextStyle": {"fontSize": 10, "color": "#888"}},
         ],
         "dataZoom": [
-            {"type": "inside", "xAxisIndex": list(range(5)),
+            {"type": "inside", "xAxisIndex": list(range(6)),
              "start": zoom_start, "end": 100},
         ],
         "toolbox": {"show": False},
@@ -1406,6 +1434,16 @@ def build_chart_echarts(
         },
     })
 
+    # ATR(20) Line
+    option["series"].append({
+        "type": "line", "name": "ATR(20)", "xAxisIndex": 5, "yAxisIndex": 6,
+        "data": atr_data,
+        "lineStyle": {"color": "#FF9800", "width": 1.5},
+        "itemStyle": {"color": "#FF9800"},
+        "symbol": "none",
+        "areaStyle": {"color": "rgba(255,152,0,0.1)"},
+    })
+
     # 진입신호 (단칸 색상 블록, 호버로 수치 확인)
     entry_vals = [round(float(signal.iloc[i]), 2) for i in range(N)]
     option["series"].append({
@@ -1499,7 +1537,7 @@ def build_chart_echarts(
     # ════════════════════════════════════════════
     # 렌더링
     # ════════════════════════════════════════════
-    st_echarts(options=option, height="960px", key=f"ec_{ticker}_{period}")
+    st_echarts(options=option, height="1060px", key=f"ec_{ticker}_{period}")
 
 
 # ─────────────────────────────────────────────
