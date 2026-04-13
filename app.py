@@ -282,7 +282,7 @@ with st.sidebar:
         st.session_state.view = "rs_scanner"
         st.rerun()
 
-    if st.button("🔍 Pattern Scanner", use_container_width=True):
+    if st.button("🔍 SEPA Scanner", use_container_width=True):
         st.session_state.view = "pattern_scanner"
         st.rerun()
 
@@ -319,7 +319,7 @@ with st.sidebar:
         return_to = st.session_state.get("return_to_view", "rs_scanner")
         _back_labels = {
             "rs_scanner": "← RS Scanner로",
-            "pattern_scanner": "← Pattern Scanner로",
+            "pattern_scanner": "← SEPA Scanner로",
             "short_scanner": "← Short Scanner로",
             "portfolio": "← 포트폴리오로",
             "watchlist":        "← 그룹 분석으로",
@@ -1336,7 +1336,7 @@ def show_dashboard():
             st.session_state.view = "rs_scanner"
             st.rerun()
     with qc2:
-        if st.button("🔍 Pattern Scanner →", type="primary", use_container_width=True, key="dash_pattern_btn"):
+        if st.button("🔍 SEPA Scanner →", type="primary", use_container_width=True, key="dash_pattern_btn"):
             st.session_state.view = "pattern_scanner"
             st.rerun()
     with qc3:
@@ -1878,7 +1878,7 @@ def show_market_indicators():
 
 
 # ══════════════════════════════════════════════════════════
-# Pattern Scanner 렌더링
+# SEPA Scanner 렌더링
 # ══════════════════════════════════════════════════════════
 
 _VCP_SHOW_COLS = [
@@ -1899,7 +1899,7 @@ _VCP_FMT = {
     "ATR(20)":       "{:,.0f}",
     "ATR(%)":        "{:.2f}%",
 }
-_PS_PERIOD = 60  # Pattern Scanner 고정 기간
+_PS_PERIOD = 60  # SEPA Scanner 고정 기간
 
 
 def _show_vcp_table(market: str, auto_calc: bool = True):
@@ -2056,7 +2056,7 @@ def _show_vcp_table(market: str, auto_calc: bool = True):
 
 
 def show_pattern_scanner():
-    st.title("🔍 Pattern Scanner")
+    st.title("🔍 SEPA Scanner")
     st.caption("Breakout Entry (VCP / BO)  ·  RS 60일 기준 · RS 상위 40% · 2단계 조건 포함")
 
     st.caption("💡 매일 첫 실행 시 자동 재계산 · 당일은 캐시에서 즉시 로드")
