@@ -1275,7 +1275,7 @@ def build_chart_echarts(
 
     # 캔들스틱 (tooltip 숨김 — OHLC는 별도 시리즈로 등락률 포함 표시)
     option["series"].append({
-        "type": "candlestick", "name": " ", "xAxisIndex": 2, "yAxisIndex": 2,
+        "type": "candlestick", "xAxisIndex": 2, "yAxisIndex": 2,
         "data": ohlc,
         "itemStyle": {
             "color": "#D92B2B", "color0": "#1A5ECC",
@@ -1394,7 +1394,7 @@ def build_chart_echarts(
 
     # 거래량 바
     option["series"].append({
-        "type": "bar", "name": "   ", "xAxisIndex": 4, "yAxisIndex": 4,
+        "type": "bar", "xAxisIndex": 4, "yAxisIndex": 4,
         "data": vol_data, "barWidth": "60%",
     })
 
@@ -1418,7 +1418,7 @@ def build_chart_echarts(
 
     # RS Line
     option["series"].append({
-        "type": "line", "name": "    ", "xAxisIndex": 3, "yAxisIndex": 3,
+        "type": "line", "xAxisIndex": 3, "yAxisIndex": 3,
         "data": rs_data,
         "lineStyle": {"color": "#D92B2B", "width": 2},
         "symbol": "none",
@@ -1427,7 +1427,7 @@ def build_chart_echarts(
 
     # RS 기준선 (100)
     option["series"].append({
-        "type": "line", "name": "     ", "xAxisIndex": 3, "yAxisIndex": 3,
+        "type": "line", "xAxisIndex": 3, "yAxisIndex": 3,
         "data": [],
         "markLine": {
             "silent": True, "symbol": "none",
@@ -1450,7 +1450,7 @@ def build_chart_echarts(
     # 진입신호 (단칸 색상 블록, 호버로 수치 확인)
     entry_vals = [round(float(signal.iloc[i]), 2) for i in range(N)]
     option["series"].append({
-        "type": "bar", "name": " ", "xAxisIndex": 1, "yAxisIndex": 1,
+        "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1,
         "data": [{"value": 1, "itemStyle": {"color": entry_colors[i]}}
                  for i in range(N)],
         "barWidth": "100%", "barGap": "0%", "barCategoryGap": "0%",
@@ -1458,7 +1458,7 @@ def build_chart_echarts(
     })
     # 진입신호 수치 (투명, 호버 전용)
     option["series"].append({
-        "type": "bar", "name": "진입수치", "xAxisIndex": 1, "yAxisIndex": 1,
+        "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1,
         "data": entry_vals,
         "barWidth": "0%", "itemStyle": {"color": "transparent"},
         "animation": False,
@@ -1467,7 +1467,7 @@ def build_chart_echarts(
     # 분배신호 (단칸 색상 블록, 호버로 수치 확인)
     expand_vals = [round(float(sell_signal.iloc[i]), 2) for i in range(N)]
     option["series"].append({
-        "type": "bar", "name": "  ", "xAxisIndex": 0, "yAxisIndex": 0,
+        "type": "bar", "xAxisIndex": 0, "yAxisIndex": 0,
         "data": [{"value": 1, "itemStyle": {"color": expand_colors[i]}}
                  for i in range(N)],
         "barWidth": "100%", "barGap": "0%", "barCategoryGap": "0%",
@@ -1475,7 +1475,7 @@ def build_chart_echarts(
     })
     # 분배신호 수치 (투명, 호버 전용)
     option["series"].append({
-        "type": "bar", "name": "확장수치", "xAxisIndex": 0, "yAxisIndex": 0,
+        "type": "bar", "xAxisIndex": 0, "yAxisIndex": 0,
         "data": expand_vals,
         "barWidth": "0%", "itemStyle": {"color": "transparent"},
         "animation": False,
@@ -1555,7 +1555,7 @@ def build_chart_echarts(
     # ════════════════════════════════════════════
     # 렌더링
     # ════════════════════════════════════════════
-    st_echarts(options=option, height="1100px", key=f"ec_{ticker}_{period}")
+    st_echarts(options=option, height="1100px", key=f"ec2_{ticker}_{period}")
 
 
 # ─────────────────────────────────────────────
