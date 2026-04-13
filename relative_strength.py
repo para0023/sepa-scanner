@@ -1534,6 +1534,21 @@ def build_chart_echarts(
         },
     ]
 
+    # 좌측 패널 제목 (각 그리드 top에 맞춤)
+    _panel_labels = [
+        ("진입신호", "9%"),    # grid 1 top
+        ("분배신호", "12%"),   # grid 0 top
+        ("주가",     "16%"),   # grid 2 top
+        ("거래량",   "50%"),   # grid 4 top
+        ("RS",       "62%"),   # grid 3 top
+        ("ATR",      "74%"),   # grid 5 top
+    ]
+    for label, top in _panel_labels:
+        option["graphic"].append({
+            "type": "text", "left": 5, "top": top,
+            "style": {"text": label, "fontSize": 10, "fill": "#888"},
+        })
+
     # ════════════════════════════════════════════
     # 렌더링
     # ════════════════════════════════════════════
