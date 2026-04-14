@@ -2921,37 +2921,74 @@ def _show_portfolio_us():
                 _render_monthly_performance(source_df=_us_pnl_filtered)
 
             # 수익률 분포도
-            if "수익률(%)" in _us_pnl_filtered.columns and len(_us_pnl_filtered) >= 3:
+            if "수익률(%)" in _us_pnl_filtered.columns and len(_us_pnl_filtered) > 0:
                 st.divider()
                 st.subheader(f"수익률 분포 ({_us_pnl_label})")
                 _ret_vals = _us_pnl_filtered["수익률(%)"].dropna()
-                if len(_ret_vals) >= 3:
+                if len(_ret_vals) > 0:
                     from streamlit_echarts import st_echarts as _st_ec
                     import numpy as _np
-                    # 히스토그램 bin 계산
-                    _bin_count = min(20, max(5, len(_ret_vals) // 3))
-                    _counts, _edges = _np.histogram(_ret_vals, bins=_bin_count)
-                    _labels = [f"{_edges[i]:.1f}~{_edges[i+1]:.1f}" for i in range(len(_counts))]
-                    _colors = ["#D92B2B" if (_edges[i] + _edges[i+1]) / 2 >= 0 else "#1A5ECC" for i in range(len(_counts))]
-                    _bar_data = [{"value": int(_counts[i]), "itemStyle": {"color": _colors[i]}} for i in range(len(_counts))]
-                    _dist_option = {
+
+                    # 개별 거래 점 (scatter) — 세로축 수익률, 가로축 거래 순서
+                    _scatter_data = []
+                    _names = _us_pnl_filtered["종목명"].values if "종목명" in _us_pnl_filtered.columns else range(len(_ret_vals))
+                    for idx, (ret, name) in enumerate(zip(_ret_vals.values, _names)):
+                        _color = "#D92B2B" if ret >= 0 else "#1A5ECC"
+                        _scatter_data.append({
+                            "value": [idx, round(float(ret), 2)],
+                            "itemStyle": {"color": _color},
+                            "name": str(name),
+                        })
+                    _scatter_option = {
                         "animation": False,
                         "backgroundColor": "#1a1a2e",
-                        "tooltip": {"trigger": "axis", "formatter": "{b}%<br/>빈도: {c}건"},
-                        "xAxis": {"type": "category", "data": _labels,
-                                  "axisLabel": {"fontSize": 10, "color": "#AAA", "rotate": 45},
-                                  "name": "수익률(%)", "nameLocation": "middle", "nameGap": 35,
-                                  "nameTextStyle": {"color": "#888", "fontSize": 11}},
-                        "yAxis": {"type": "value", "name": "빈도",
-                                  "axisLabel": {"fontSize": 10, "color": "#AAA"},
+                        "tooltip": {"trigger": "item",
+                                    "formatter": "{a}<br/>{b}: {c}%"},
+                        "xAxis": {"type": "value", "show": False},
+                        "yAxis": {"type": "value", "name": "수익률(%)",
+                                  "axisLabel": {"fontSize": 10, "color": "#AAA", "formatter": "{value}%"},
                                   "nameTextStyle": {"color": "#888", "fontSize": 11},
-                                  "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}}},
-                        "series": [{"type": "bar", "data": _bar_data, "barWidth": "80%"}],
+                                  "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}},
+                                  "axisLine": {"show": False}},
+                        "series": [{
+                            "type": "scatter", "name": "거래",
+                            "data": _scatter_data,
+                            "symbolSize": 10,
+                            "markLine": {
+                                "silent": True, "symbol": "none",
+                                "lineStyle": {"color": "#999", "type": "dashed", "width": 1},
+                                "data": [{"yAxis": 0, "label": {"show": False}}],
+                            },
+                        }],
                     }
-                    _st_ec(options=_dist_option, height="300px", key=f"ret_dist_{_us_pnl_label}")
-                    _med = float(_ret_vals.median())
+                    _st_ec(options=_scatter_option, height="300px", key=f"ret_scatter_{_us_pnl_label}")
+
+                    # 히스토그램 (5건 이상)
+                    if len(_ret_vals) >= 5:
+                        _bin_count = min(20, max(5, len(_ret_vals) // 3))
+                        _counts, _edges = _np.histogram(_ret_vals, bins=_bin_count)
+                        _labels = [f"{_edges[i]:.1f}~{_edges[i+1]:.1f}" for i in range(len(_counts))]
+                        _h_colors = ["#D92B2B" if (_edges[i] + _edges[i+1]) / 2 >= 0 else "#1A5ECC" for i in range(len(_counts))]
+                        _bar_data = [{"value": int(_counts[i]), "itemStyle": {"color": _h_colors[i]}} for i in range(len(_counts))]
+                        _dist_option = {
+                            "animation": False,
+                            "backgroundColor": "#1a1a2e",
+                            "tooltip": {"trigger": "axis", "formatter": "{b}%<br/>빈도: {c}건"},
+                            "xAxis": {"type": "category", "data": _labels,
+                                      "axisLabel": {"fontSize": 10, "color": "#AAA", "rotate": 45},
+                                      "name": "수익률(%)", "nameLocation": "middle", "nameGap": 35,
+                                      "nameTextStyle": {"color": "#888", "fontSize": 11}},
+                            "yAxis": {"type": "value", "name": "빈도",
+                                      "axisLabel": {"fontSize": 10, "color": "#AAA"},
+                                      "nameTextStyle": {"color": "#888", "fontSize": 11},
+                                      "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}}},
+                            "series": [{"type": "bar", "data": _bar_data, "barWidth": "80%"}],
+                        }
+                        _st_ec(options=_dist_option, height="300px", key=f"ret_dist_{_us_pnl_label}")
+
                     _mean = float(_ret_vals.mean())
-                    _std = float(_ret_vals.std())
+                    _med = float(_ret_vals.median())
+                    _std = float(_ret_vals.std()) if len(_ret_vals) > 1 else 0
                     _c1, _c2, _c3 = st.columns(3)
                     _c1.metric("평균", f"{_mean:+.2f}%")
                     _c2.metric("중앙값", f"{_med:+.2f}%")
