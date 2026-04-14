@@ -2920,6 +2920,43 @@ def _show_portfolio_us():
                 st.subheader(f"월별 성과 ({_us_pnl_label})")
                 _render_monthly_performance(source_df=_us_pnl_filtered)
 
+            # 수익률 분포도
+            if "수익률(%)" in _us_pnl_filtered.columns and len(_us_pnl_filtered) >= 3:
+                st.divider()
+                st.subheader(f"수익률 분포 ({_us_pnl_label})")
+                _ret_vals = _us_pnl_filtered["수익률(%)"].dropna()
+                if len(_ret_vals) >= 3:
+                    from streamlit_echarts import st_echarts as _st_ec
+                    import numpy as _np
+                    # 히스토그램 bin 계산
+                    _bin_count = min(20, max(5, len(_ret_vals) // 3))
+                    _counts, _edges = _np.histogram(_ret_vals, bins=_bin_count)
+                    _labels = [f"{_edges[i]:.1f}~{_edges[i+1]:.1f}" for i in range(len(_counts))]
+                    _colors = ["#D92B2B" if (_edges[i] + _edges[i+1]) / 2 >= 0 else "#1A5ECC" for i in range(len(_counts))]
+                    _bar_data = [{"value": int(_counts[i]), "itemStyle": {"color": _colors[i]}} for i in range(len(_counts))]
+                    _dist_option = {
+                        "animation": False,
+                        "backgroundColor": "#1a1a2e",
+                        "tooltip": {"trigger": "axis", "formatter": "{b}%<br/>빈도: {c}건"},
+                        "xAxis": {"type": "category", "data": _labels,
+                                  "axisLabel": {"fontSize": 10, "color": "#AAA", "rotate": 45},
+                                  "name": "수익률(%)", "nameLocation": "middle", "nameGap": 35,
+                                  "nameTextStyle": {"color": "#888", "fontSize": 11}},
+                        "yAxis": {"type": "value", "name": "빈도",
+                                  "axisLabel": {"fontSize": 10, "color": "#AAA"},
+                                  "nameTextStyle": {"color": "#888", "fontSize": 11},
+                                  "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}}},
+                        "series": [{"type": "bar", "data": _bar_data, "barWidth": "80%"}],
+                    }
+                    _st_ec(options=_dist_option, height="300px", key=f"ret_dist_{_us_pnl_label}")
+                    _med = float(_ret_vals.median())
+                    _mean = float(_ret_vals.mean())
+                    _std = float(_ret_vals.std())
+                    _c1, _c2, _c3 = st.columns(3)
+                    _c1.metric("평균", f"{_mean:+.2f}%")
+                    _c2.metric("중앙값", f"{_med:+.2f}%")
+                    _c3.metric("표준편차", f"{_std:.2f}%")
+
     # ── 종목별 성과분석 ─────────────────────────────
     with tab_perf:
         df_pos_pnl = get_position_pnl()
