@@ -2388,32 +2388,24 @@ def _render_return_distribution(df, label: str, prefix: str):
     st.divider()
     st.subheader(f"수익률 분포 ({label})")
 
-    # 개별 거래를 점으로 표시 — 가로축 수익률, 세로축 빈도(같은 구간 겹침 방지)
-    _bin_width = max(1.0, (_ret_vals.max() - _ret_vals.min()) / 20) if len(_ret_vals) > 1 else 1.0
-    _dot_map = {}
-    for ret in _ret_vals.values:
-        _bin_key = round(float(ret) / _bin_width) * _bin_width
-        _dot_map.setdefault(_bin_key, []).append(float(ret))
-
+    # 개별 거래를 점으로 표시 — 가로축 수익률, 세로축 빈도
     _scatter_data = []
-    for _bin_key, items in _dot_map.items():
-        for y_idx, ret in enumerate(items):
-            _color = "#D92B2B" if ret >= 0 else "#1A5ECC"
-            _scatter_data.append({
-                "value": [round(ret, 2), y_idx + 1],
-                "itemStyle": {"color": _color},
-            })
+    _sorted_rets = sorted(_ret_vals.values)
+    _freq = {}
+    for ret in _sorted_rets:
+        _rnd = round(float(ret), 1)
+        _freq[_rnd] = _freq.get(_rnd, 0) + 1
+        _color = "#D92B2B" if ret >= 0 else "#1A5ECC"
+        _scatter_data.append([round(float(ret), 2), _freq[_rnd], _color])
 
-    _max_y = max((d["value"][1] for d in _scatter_data), default=1) + 1
+    _max_y = max(d[1] for d in _scatter_data) + 1 if _scatter_data else 2
     _option = {
         "animation": False,
         "backgroundColor": "#1a1a2e",
-        "tooltip": {"trigger": "item",
-                    "formatter": "{c0}%"},
         "xAxis": {"type": "value",
                   "name": "수익률(%)", "nameLocation": "middle", "nameGap": 25,
                   "nameTextStyle": {"color": "#888", "fontSize": 11},
-                  "axisLabel": {"fontSize": 10, "color": "#AAA", "formatter": "{value}%"},
+                  "axisLabel": {"fontSize": 10, "color": "#AAA"},
                   "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}},
                   "axisLine": {"lineStyle": {"color": "rgba(255,255,255,0.2)"}}},
         "yAxis": {"type": "value", "name": "빈도",
@@ -2422,8 +2414,10 @@ def _render_return_distribution(df, label: str, prefix: str):
                   "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}},
                   "max": _max_y},
         "series": [{
-            "type": "scatter", "data": _scatter_data,
+            "type": "scatter", "name": "거래",
+            "data": [[d[0], d[1]] for d in _scatter_data],
             "symbolSize": 12,
+            "itemStyle": {"color": "#D92B2B"},
             "markLine": {
                 "silent": True, "symbol": "none",
                 "lineStyle": {"color": "#999", "type": "dashed", "width": 1},
@@ -2431,6 +2425,21 @@ def _render_return_distribution(df, label: str, prefix: str):
             },
         }],
     }
+    # 수익/손실 색상 분리
+    _wins = [[d[0], d[1]] for d in _scatter_data if d[2] == "#D92B2B"]
+    _losses = [[d[0], d[1]] for d in _scatter_data if d[2] == "#1A5ECC"]
+    _option["series"] = [
+        {"type": "scatter", "name": "수익", "data": _wins, "symbolSize": 12,
+         "itemStyle": {"color": "#D92B2B"}},
+        {"type": "scatter", "name": "손실", "data": _losses, "symbolSize": 12,
+         "itemStyle": {"color": "#1A5ECC"}},
+    ]
+    if _wins or _losses:
+        _option["series"][0]["markLine"] = {
+            "silent": True, "symbol": "none",
+            "lineStyle": {"color": "#999", "type": "dashed", "width": 1},
+            "data": [{"xAxis": 0, "label": {"show": False}}],
+        }
     _st_ec(options=_option, height="300px", key=f"ret_dist_{prefix}_{label}")
 
     _mean = float(_ret_vals.mean())
