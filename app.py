@@ -2410,8 +2410,7 @@ def _render_return_distribution(df, label: str, prefix: str):
     _option = {
         "animation": False,
         "backgroundColor": "#1a1a2e",
-        "tooltip": {"trigger": "item",
-                    "formatter": lambda p: f"{p['name']}<br/>수익률: {p['value'][0]}%"},
+        "tooltip": {"trigger": "item"},
         "xAxis": {"type": "value",
                   "name": "수익률(%)", "nameLocation": "middle", "nameGap": 25,
                   "nameTextStyle": {"color": "#888", "fontSize": 11},
