@@ -2400,14 +2400,36 @@ def _render_return_distribution(df, label: str, prefix: str):
         _y.append(_freq[_rnd])
         _colors.append("#D92B2B" if ret >= 0 else "#1A5ECC")
 
+    import numpy as _np
+    _mean = float(_ret_vals.mean())
+    _std = float(_ret_vals.std()) if len(_ret_vals) > 1 else 1.0
+    _max_freq = max(_y) if _y else 1
+
+    # 정규분포 곡선
+    _norm_x = _np.linspace(_mean - 3.5 * _std, _mean + 3.5 * _std, 100)
+    _norm_y = (1 / (_std * _np.sqrt(2 * _np.pi))) * _np.exp(-0.5 * ((_norm_x - _mean) / _std) ** 2)
+    _norm_y = _norm_y / _norm_y.max() * _max_freq  # 빈도 스케일에 맞춤
+
     fig = go.Figure()
+    # 점
     fig.add_trace(go.Scatter(
         x=_x, y=_y, mode="markers",
         marker=dict(size=10, color=_colors),
         hovertemplate="%{x:.2f}%<extra></extra>",
+        name="거래",
     ))
-    fig.add_hline(y=0, line_dash="dash", line_color="#555", line_width=1)
+    # 정규분포 곡선
+    fig.add_trace(go.Scatter(
+        x=_norm_x.tolist(), y=_norm_y.tolist(), mode="lines",
+        line=dict(color="rgba(255,255,255,0.4)", width=1.5, dash="dot"),
+        name="정규분포", hoverinfo="skip",
+    ))
+    # 0% 기준선
     fig.add_vline(x=0, line_dash="dash", line_color="#999", line_width=1)
+    # 평균 기준선
+    fig.add_vline(x=_mean, line_dash="solid", line_color="#F39C12", line_width=1.5,
+                  annotation_text=f"평균 {_mean:+.1f}%", annotation_font_color="#F39C12",
+                  annotation_font_size=10, annotation_position="top")
     fig.update_layout(
         paper_bgcolor="#1a1a2e", plot_bgcolor="#1a1a2e",
         xaxis=dict(title="수익률(%)", color="#AAA", gridcolor="rgba(255,255,255,0.08)"),
@@ -2417,8 +2439,6 @@ def _render_return_distribution(df, label: str, prefix: str):
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    _mean = float(_ret_vals.mean())
-    _std = float(_ret_vals.std()) if len(_ret_vals) > 1 else 0
     _max_ret = float(_ret_vals.max())
     _min_ret = float(_ret_vals.min())
     _c1, _c2, _c3, _c4 = st.columns(4)
