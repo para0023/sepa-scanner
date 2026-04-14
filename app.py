@@ -2412,11 +2412,18 @@ def _render_return_distribution(df, label: str, prefix: str):
     _max_freq = max(_counts) if _counts else 1
 
     fig = go.Figure()
+    # 비중 계산
+    _total = sum(_counts)
+    _pcts = [round(c / _total * 100, 1) if _total > 0 else 0 for c in _counts]
+    _text = [f"{p}%" for p in _pcts]
+
     # 막대
     fig.add_trace(go.Bar(
         x=_labels, y=_counts,
         marker_color=_bar_colors,
-        hovertemplate="%{x}<br>빈도: %{y}건<extra></extra>",
+        text=_text, textposition="outside",
+        textfont=dict(size=10, color="#AAA"),
+        hovertemplate="%{x}<br>빈도: %{y}건 (%{text})<extra></extra>",
     ))
     # 0% 기준선
     _zero_idx = None
