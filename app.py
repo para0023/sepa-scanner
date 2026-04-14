@@ -2374,6 +2374,78 @@ def _render_monthly_performance(source_df=None, date_col="날짜"):
     st.altair_chart(line + points + labels + zero, use_container_width=True)
 
 
+def _render_return_distribution(df, label: str, prefix: str):
+    """수익률 분포도 — 가로축 수익률(%), 세로축 빈도(점)"""
+    if "수익률(%)" not in df.columns or len(df) == 0:
+        return
+    _ret_vals = df["수익률(%)"].dropna()
+    if len(_ret_vals) == 0:
+        return
+
+    from streamlit_echarts import st_echarts as _st_ec
+    import numpy as _np
+
+    st.divider()
+    st.subheader(f"수익률 분포 ({label})")
+
+    # 개별 거래를 점으로 표시 — 가로축 수익률, 세로축 빈도(같은 구간 겹침 방지)
+    _bin_width = max(1.0, (_ret_vals.max() - _ret_vals.min()) / 20) if len(_ret_vals) > 1 else 1.0
+    _dot_map = {}
+    _names = df["종목명"].values if "종목명" in df.columns else [f"#{i+1}" for i in range(len(_ret_vals))]
+    for ret, name in zip(_ret_vals.values, _names):
+        _bin_key = round(float(ret) / _bin_width) * _bin_width
+        _dot_map.setdefault(_bin_key, []).append((float(ret), str(name)))
+
+    _scatter_data = []
+    for _bin_key, items in _dot_map.items():
+        for y_idx, (ret, name) in enumerate(items):
+            _color = "#D92B2B" if ret >= 0 else "#1A5ECC"
+            _scatter_data.append({
+                "value": [round(ret, 2), y_idx + 1],
+                "itemStyle": {"color": _color},
+                "name": name,
+            })
+
+    _max_y = max((d["value"][1] for d in _scatter_data), default=1) + 1
+    _option = {
+        "animation": False,
+        "backgroundColor": "#1a1a2e",
+        "tooltip": {"trigger": "item",
+                    "formatter": lambda p: f"{p['name']}<br/>수익률: {p['value'][0]}%"},
+        "xAxis": {"type": "value",
+                  "name": "수익률(%)", "nameLocation": "middle", "nameGap": 25,
+                  "nameTextStyle": {"color": "#888", "fontSize": 11},
+                  "axisLabel": {"fontSize": 10, "color": "#AAA", "formatter": "{value}%"},
+                  "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}},
+                  "axisLine": {"lineStyle": {"color": "rgba(255,255,255,0.2)"}}},
+        "yAxis": {"type": "value", "name": "빈도",
+                  "nameTextStyle": {"color": "#888", "fontSize": 11},
+                  "axisLabel": {"fontSize": 10, "color": "#AAA"},
+                  "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}},
+                  "max": _max_y},
+        "series": [{
+            "type": "scatter", "data": _scatter_data,
+            "symbolSize": 12,
+            "markLine": {
+                "silent": True, "symbol": "none",
+                "lineStyle": {"color": "#999", "type": "dashed", "width": 1},
+                "data": [{"xAxis": 0, "label": {"show": False}}],
+            },
+        }],
+    }
+    _st_ec(options=_option, height="300px", key=f"ret_dist_{prefix}_{label}")
+
+    _mean = float(_ret_vals.mean())
+    _std = float(_ret_vals.std()) if len(_ret_vals) > 1 else 0
+    _max_ret = float(_ret_vals.max())
+    _min_ret = float(_ret_vals.min())
+    _c1, _c2, _c3, _c4 = st.columns(4)
+    _c1.metric("평균수익률", f"{_mean:+.2f}%")
+    _c2.metric("표준편차", f"{_std:.2f}%")
+    _c3.metric("최대", f"{_max_ret:+.2f}%")
+    _c4.metric("최소", f"{_min_ret:+.2f}%")
+
+
 def _show_portfolio_us():
     """미국 포트폴리오 UI (달러 기준)"""
     tab_hold, tab_pnl, tab_perf, tab_review, tab_log = st.tabs(
@@ -2921,78 +2993,7 @@ def _show_portfolio_us():
                 _render_monthly_performance(source_df=_us_pnl_filtered)
 
             # 수익률 분포도
-            if "수익률(%)" in _us_pnl_filtered.columns and len(_us_pnl_filtered) > 0:
-                st.divider()
-                st.subheader(f"수익률 분포 ({_us_pnl_label})")
-                _ret_vals = _us_pnl_filtered["수익률(%)"].dropna()
-                if len(_ret_vals) > 0:
-                    from streamlit_echarts import st_echarts as _st_ec
-                    import numpy as _np
-
-                    # 개별 거래 점 (scatter) — 세로축 수익률, 가로축 거래 순서
-                    _scatter_data = []
-                    _names = _us_pnl_filtered["종목명"].values if "종목명" in _us_pnl_filtered.columns else range(len(_ret_vals))
-                    for idx, (ret, name) in enumerate(zip(_ret_vals.values, _names)):
-                        _color = "#D92B2B" if ret >= 0 else "#1A5ECC"
-                        _scatter_data.append({
-                            "value": [idx, round(float(ret), 2)],
-                            "itemStyle": {"color": _color},
-                            "name": str(name),
-                        })
-                    _scatter_option = {
-                        "animation": False,
-                        "backgroundColor": "#1a1a2e",
-                        "tooltip": {"trigger": "item",
-                                    "formatter": "{a}<br/>{b}: {c}%"},
-                        "xAxis": {"type": "value", "show": False},
-                        "yAxis": {"type": "value", "name": "수익률(%)",
-                                  "axisLabel": {"fontSize": 10, "color": "#AAA", "formatter": "{value}%"},
-                                  "nameTextStyle": {"color": "#888", "fontSize": 11},
-                                  "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}},
-                                  "axisLine": {"show": False}},
-                        "series": [{
-                            "type": "scatter", "name": "거래",
-                            "data": _scatter_data,
-                            "symbolSize": 10,
-                            "markLine": {
-                                "silent": True, "symbol": "none",
-                                "lineStyle": {"color": "#999", "type": "dashed", "width": 1},
-                                "data": [{"yAxis": 0, "label": {"show": False}}],
-                            },
-                        }],
-                    }
-                    _st_ec(options=_scatter_option, height="300px", key=f"ret_scatter_{_us_pnl_label}")
-
-                    # 히스토그램 (5건 이상)
-                    if len(_ret_vals) >= 5:
-                        _bin_count = min(20, max(5, len(_ret_vals) // 3))
-                        _counts, _edges = _np.histogram(_ret_vals, bins=_bin_count)
-                        _labels = [f"{_edges[i]:.1f}~{_edges[i+1]:.1f}" for i in range(len(_counts))]
-                        _h_colors = ["#D92B2B" if (_edges[i] + _edges[i+1]) / 2 >= 0 else "#1A5ECC" for i in range(len(_counts))]
-                        _bar_data = [{"value": int(_counts[i]), "itemStyle": {"color": _h_colors[i]}} for i in range(len(_counts))]
-                        _dist_option = {
-                            "animation": False,
-                            "backgroundColor": "#1a1a2e",
-                            "tooltip": {"trigger": "axis", "formatter": "{b}%<br/>빈도: {c}건"},
-                            "xAxis": {"type": "category", "data": _labels,
-                                      "axisLabel": {"fontSize": 10, "color": "#AAA", "rotate": 45},
-                                      "name": "수익률(%)", "nameLocation": "middle", "nameGap": 35,
-                                      "nameTextStyle": {"color": "#888", "fontSize": 11}},
-                            "yAxis": {"type": "value", "name": "빈도",
-                                      "axisLabel": {"fontSize": 10, "color": "#AAA"},
-                                      "nameTextStyle": {"color": "#888", "fontSize": 11},
-                                      "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}}},
-                            "series": [{"type": "bar", "data": _bar_data, "barWidth": "80%"}],
-                        }
-                        _st_ec(options=_dist_option, height="300px", key=f"ret_dist_{_us_pnl_label}")
-
-                    _mean = float(_ret_vals.mean())
-                    _med = float(_ret_vals.median())
-                    _std = float(_ret_vals.std()) if len(_ret_vals) > 1 else 0
-                    _c1, _c2, _c3 = st.columns(3)
-                    _c1.metric("평균", f"{_mean:+.2f}%")
-                    _c2.metric("중앙값", f"{_med:+.2f}%")
-                    _c3.metric("표준편차", f"{_std:.2f}%")
+            _render_return_distribution(_us_pnl_filtered, _us_pnl_label, "us")
 
     # ── 종목별 성과분석 ─────────────────────────────
     with tab_perf:
@@ -3842,6 +3843,9 @@ def show_portfolio():
             if not _pnl_sel_month:
                 st.subheader(f"월별 성과 ({_pnl_label})")
                 _render_monthly_performance(source_df=_pnl_filtered)
+
+            # 수익률 분포도
+            _render_return_distribution(_pnl_filtered, _pnl_label, "kr")
 
     # ── 종목별 성과분석 ───────────────────────
     with tab_perf:
