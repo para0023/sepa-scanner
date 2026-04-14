@@ -2391,26 +2391,25 @@ def _render_return_distribution(df, label: str, prefix: str):
     # 개별 거래를 점으로 표시 — 가로축 수익률, 세로축 빈도(같은 구간 겹침 방지)
     _bin_width = max(1.0, (_ret_vals.max() - _ret_vals.min()) / 20) if len(_ret_vals) > 1 else 1.0
     _dot_map = {}
-    _names = df["종목명"].values if "종목명" in df.columns else [f"#{i+1}" for i in range(len(_ret_vals))]
-    for ret, name in zip(_ret_vals.values, _names):
+    for ret in _ret_vals.values:
         _bin_key = round(float(ret) / _bin_width) * _bin_width
-        _dot_map.setdefault(_bin_key, []).append((float(ret), str(name)))
+        _dot_map.setdefault(_bin_key, []).append(float(ret))
 
     _scatter_data = []
     for _bin_key, items in _dot_map.items():
-        for y_idx, (ret, name) in enumerate(items):
+        for y_idx, ret in enumerate(items):
             _color = "#D92B2B" if ret >= 0 else "#1A5ECC"
             _scatter_data.append({
                 "value": [round(ret, 2), y_idx + 1],
                 "itemStyle": {"color": _color},
-                "name": name,
             })
 
     _max_y = max((d["value"][1] for d in _scatter_data), default=1) + 1
     _option = {
         "animation": False,
         "backgroundColor": "#1a1a2e",
-        "tooltip": {"trigger": "item"},
+        "tooltip": {"trigger": "item",
+                    "formatter": "{c0}%"},
         "xAxis": {"type": "value",
                   "name": "수익률(%)", "nameLocation": "middle", "nameGap": 25,
                   "nameTextStyle": {"color": "#888", "fontSize": 11},
