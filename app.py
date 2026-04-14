@@ -2388,43 +2388,34 @@ def _render_return_distribution(df, label: str, prefix: str):
     st.divider()
     st.subheader(f"수익률 분포 ({label})")
 
-    # 개별 거래를 점으로 표시 — 가로축 거래순서, 세로축 수익률
-    from streamlit_echarts import st_echarts
-    _data_wins = []
-    _data_losses = []
-    for idx, ret in enumerate(_ret_vals.values):
-        pt = [idx, round(float(ret), 2)]
-        if ret >= 0:
-            _data_wins.append(pt)
-        else:
-            _data_losses.append(pt)
+    # 개별 거래를 점으로 표시 — 가로축 수익률, 세로축 빈도
+    import plotly.graph_objects as go
+    _sorted = sorted(_ret_vals.values)
+    _freq = {}
+    _x, _y, _colors = [], [], []
+    for ret in _sorted:
+        _rnd = round(float(ret), 1)
+        _freq[_rnd] = _freq.get(_rnd, 0) + 1
+        _x.append(round(float(ret), 2))
+        _y.append(_freq[_rnd])
+        _colors.append("#D92B2B" if ret >= 0 else "#1A5ECC")
 
-    _option = {
-        "animation": False,
-        "backgroundColor": "#1a1a2e",
-        "tooltip": {"trigger": "item"},
-        "xAxis": {"type": "value", "show": False},
-        "yAxis": {"type": "value", "name": "수익률(%)",
-                  "axisLabel": {"fontSize": 10, "color": "#AAA", "formatter": "{value}%"},
-                  "nameTextStyle": {"color": "#888", "fontSize": 11},
-                  "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}},
-                  "axisLine": {"show": False}},
-        "series": [
-            {"type": "scatter", "name": "수익", "data": _data_wins,
-             "symbolSize": 12, "itemStyle": {"color": "#D92B2B"}},
-            {"type": "scatter", "name": "손실", "data": _data_losses,
-             "symbolSize": 12, "itemStyle": {"color": "#1A5ECC"}},
-        ],
-    }
-    # 0% 기준선
-    if _data_wins:
-        _option["series"][0]["markLine"] = {
-            "silent": True, "symbol": "none",
-            "lineStyle": {"color": "#999", "type": "dashed", "width": 1},
-            "data": [{"yAxis": 0, "label": {"show": False}}],
-        }
-    st.caption(f"DEBUG: wins={len(_data_wins)}, losses={len(_data_losses)}")
-    st_echarts(options=_option, height="300px", key=f"ret_dot_{prefix}_{label}")
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=_x, y=_y, mode="markers",
+        marker=dict(size=10, color=_colors),
+        hovertemplate="%{x:.2f}%<extra></extra>",
+    ))
+    fig.add_hline(y=0, line_dash="dash", line_color="#555", line_width=1)
+    fig.add_vline(x=0, line_dash="dash", line_color="#999", line_width=1)
+    fig.update_layout(
+        paper_bgcolor="#1a1a2e", plot_bgcolor="#1a1a2e",
+        xaxis=dict(title="수익률(%)", color="#AAA", gridcolor="rgba(255,255,255,0.08)"),
+        yaxis=dict(title="빈도", color="#AAA", gridcolor="rgba(255,255,255,0.08)", dtick=1),
+        font=dict(color="#AAA"), height=300, margin=dict(l=50, r=20, t=20, b=50),
+        showlegend=False,
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
     _mean = float(_ret_vals.mean())
     _std = float(_ret_vals.std()) if len(_ret_vals) > 1 else 0
