@@ -2423,6 +2423,7 @@ def _render_return_distribution(df, label: str, prefix: str):
             "lineStyle": {"color": "#999", "type": "dashed", "width": 1},
             "data": [{"yAxis": 0, "label": {"show": False}}],
         }
+    st.caption(f"DEBUG: wins={len(_data_wins)}, losses={len(_data_losses)}")
     st_echarts(options=_option, height="300px", key=f"ret_dot_{prefix}_{label}")
 
     _mean = float(_ret_vals.mean())
