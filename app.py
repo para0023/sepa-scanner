@@ -2388,54 +2388,55 @@ def _render_return_distribution(df, label: str, prefix: str):
     st.divider()
     st.subheader(f"수익률 분포 ({label})")
 
-    # 개별 거래를 점으로 표시 — 가로축 수익률, 세로축 빈도
+    # 5% 구간별 히스토그램 — 실제 분포 형태
     import plotly.graph_objects as go
-    _sorted = sorted(_ret_vals.values)
-    _freq = {}
-    _x, _y, _colors = [], [], []
-    for ret in _sorted:
-        _rnd = round(float(ret), 1)
-        _freq[_rnd] = _freq.get(_rnd, 0) + 1
-        _x.append(round(float(ret), 2))
-        _y.append(_freq[_rnd])
-        _colors.append("#D92B2B" if ret >= 0 else "#1A5ECC")
-
     import numpy as _np
+    import math
+
     _mean = float(_ret_vals.mean())
     _std = float(_ret_vals.std()) if len(_ret_vals) > 1 else 1.0
-    _max_freq = max(_y) if _y else 1
-
-    # 정규분포 곡선
-    _norm_x = _np.linspace(_mean - 3.5 * _std, _mean + 3.5 * _std, 100)
-    _norm_y = (1 / (_std * _np.sqrt(2 * _np.pi))) * _np.exp(-0.5 * ((_norm_x - _mean) / _std) ** 2)
-    _norm_y = _norm_y / _norm_y.max() * _max_freq  # 빈도 스케일에 맞춤
+    _bin_size = 5
+    _min_edge = math.floor(_ret_vals.min() / _bin_size) * _bin_size
+    _max_edge = math.ceil(_ret_vals.max() / _bin_size) * _bin_size
+    _edges = list(range(_min_edge, _max_edge + _bin_size, _bin_size))
+    _counts = [0] * (len(_edges) - 1)
+    for ret in _ret_vals.values:
+        for i in range(len(_edges) - 1):
+            if _edges[i] <= ret < _edges[i + 1]:
+                _counts[i] += 1
+                break
+        else:
+            _counts[-1] += 1
+    _labels = [f"{_edges[i]}~{_edges[i+1]}%" for i in range(len(_counts))]
+    _bar_colors = ["#D92B2B" if (_edges[i] + _edges[i+1]) / 2 >= 0 else "#1A5ECC" for i in range(len(_counts))]
+    _max_freq = max(_counts) if _counts else 1
 
     fig = go.Figure()
-    # 점
-    fig.add_trace(go.Scatter(
-        x=_x, y=_y, mode="markers",
-        marker=dict(size=10, color=_colors),
-        hovertemplate="%{x:.2f}%<extra></extra>",
-        name="거래",
-    ))
-    # 정규분포 곡선
-    fig.add_trace(go.Scatter(
-        x=_norm_x.tolist(), y=_norm_y.tolist(), mode="lines",
-        line=dict(color="rgba(255,255,255,0.4)", width=1.5, dash="dot"),
-        name="정규분포", hoverinfo="skip",
+    # 막대
+    fig.add_trace(go.Bar(
+        x=_labels, y=_counts,
+        marker_color=_bar_colors,
+        hovertemplate="%{x}<br>빈도: %{y}건<extra></extra>",
     ))
     # 0% 기준선
-    fig.add_vline(x=0, line_dash="dash", line_color="#999", line_width=1)
-    # 평균 기준선
-    fig.add_vline(x=_mean, line_dash="solid", line_color="#F39C12", line_width=1.5,
-                  annotation_text=f"평균 {_mean:+.1f}%", annotation_font_color="#F39C12",
-                  annotation_font_size=10, annotation_position="top")
+    _zero_idx = None
+    for i in range(len(_edges) - 1):
+        if _edges[i] <= 0 < _edges[i + 1]:
+            _zero_idx = i
+            break
+    # 평균 표시
+    fig.add_annotation(
+        x=_labels[min(max(0, int((_mean - _min_edge) / _bin_size)), len(_labels) - 1)],
+        y=_max_freq + 0.5,
+        text=f"평균 {_mean:+.1f}%", showarrow=False,
+        font=dict(color="#F39C12", size=11),
+    )
     fig.update_layout(
         paper_bgcolor="#1a1a2e", plot_bgcolor="#1a1a2e",
         xaxis=dict(title="수익률(%)", color="#AAA", gridcolor="rgba(255,255,255,0.08)"),
         yaxis=dict(title="빈도", color="#AAA", gridcolor="rgba(255,255,255,0.08)", dtick=1),
-        font=dict(color="#AAA"), height=300, margin=dict(l=50, r=20, t=20, b=50),
-        showlegend=False,
+        font=dict(color="#AAA"), height=300, margin=dict(l=50, r=20, t=30, b=50),
+        showlegend=False, bargap=0.05,
     )
     st.plotly_chart(fig, use_container_width=True)
 
