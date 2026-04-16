@@ -3182,6 +3182,9 @@ def _show_portfolio_us():
             else:
                 st.info("진입근거별 데이터가 없습니다.")
 
+            # 종목별 수익률 분포
+            _render_return_distribution(df_pos_pnl, _us_period_label, "us_pos")
+
     # ── 월별 리뷰 ─────────────────────────────
     with tab_review:
         _us_review_df = get_realized_pnl()
@@ -4033,6 +4036,9 @@ def show_portfolio():
             # ── 5. 월별 성과 ──
             st.subheader("5. 월별 성과")
             _render_monthly_performance(source_df=df_pos_pnl, date_col="청산일")
+
+            # 종목별 수익률 분포
+            _render_return_distribution(df_pos_pnl, "전체", "kr_pos")
 
     # ── 월별 리뷰 ─────────────────────────────
     with tab_review:
