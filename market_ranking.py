@@ -620,31 +620,33 @@ def _detect_vcp_single(
         if base_period < 15:
             return None
 
-        # 베이스 상단 이후 구간
-        base_close = close_window.iloc[base_top_loc + 1:]
+        # 베이스 구간 (베이스 상단 포함)
+        base_close = close_window.iloc[base_top_loc:]
         if len(base_close) < 10:
             return None
 
-        # 로컬 고점 탐색 (3일 윈도우)
+        # 로컬 고점 탐색 (3일 윈도우) — 베이스 상단을 첫 peak로 포함
         win = 3
-        local_highs = []  # (position, price)
+        local_highs = [(0, base_top_price)]  # 베이스 상단
         for i in range(win, len(base_close) - win):
             c         = float(base_close.iloc[i])
             neighbors = base_close.iloc[i - win : i + win + 1]
             if c >= float(neighbors.max()) * 0.999:
-                if not local_highs or (i - local_highs[-1][0]) >= win:
+                if (i - local_highs[-1][0]) >= win:
                     local_highs.append((i, c))
 
         if len(local_highs) < min_t + 1:
             return None
 
-        # 연속 로컬 고점 간 스윙 범위 계산
+        # 연속 로컬 고점 간 스윙 범위 계산 (peak → 다음 peak까지 구간 내 max-min)
+        # 첫 스윙(베이스 상단에서 출발)은 max_swing_days 제한을 풀어 큰 낙폭도 포함
         swings = []
         for j in range(len(local_highs) - 1):
             p1, h1    = local_highs[j]
             p2, _     = local_highs[j + 1]
             swing_days = p2 - p1
-            if swing_days > max_swing_days:
+            # 첫 스윙은 제한 없음, 나머지는 max_swing_days 제한
+            if j > 0 and swing_days > max_swing_days:
                 continue
             seg       = base_close.iloc[p1 : p2 + 1]
             seg_max   = float(seg.max())
