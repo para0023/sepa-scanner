@@ -688,9 +688,9 @@ def _detect_vcp_single(
             return None
         contraction_strength = round((first_range - last_range) / first_range * 100, 1)
 
-        # 직전 피벗 = 수축 시퀀스 내 가장 높은 고점 (돌파 진입 기준)
+        # 직전 피벗 = 마지막 수축 시작 peak (최신 로컬 고점, 돌파 진입 기준)
         # 최종 피벗 = 베이스 상단 (완전한 브레이크아웃 기준)
-        near_pivot      = round(max(s["high_price"] for s in best_seq))
+        near_pivot      = round(best_seq[-1]["high_price"])
         near_pivot_dist = round((near_pivot - current_price) / current_price * 100, 2)
         final_pivot     = round(base_top_price)
 
