@@ -386,8 +386,8 @@ def calc_group_index(market: str, tickers: list, period: int = 252):
     }
 
 
-def build_group_chart(result: dict, group_name: str, benchmark_name: str) -> go.Figure:
-    """그룹 지수 차트 — 개별 종목 차트와 동일한 삼성증권 스타일"""
+def build_group_chart_plotly(result: dict, group_name: str, benchmark_name: str) -> go.Figure:
+    """그룹 지수 차트 — Plotly 버전 (백업)"""
     from relative_strength import C, calculate_mas, _signal_colors
 
     group_idx = result["group_idx"]   # pd.Series, 기준=100
@@ -702,6 +702,287 @@ def build_group_chart(result: dict, group_name: str, benchmark_name: str) -> go.
     )
 
     return fig
+
+
+def build_group_chart(result: dict, group_name: str, benchmark_name: str):
+    """그룹 지수 ECharts 차트 — 5패널 (진입신호/분배신호/그룹지수+MA/RS/ATR)"""
+    from streamlit_echarts import st_echarts
+    import streamlit as st
+    import numpy as np
+    from relative_strength import calculate_mas
+
+    group_idx = result["group_idx"]
+    benchmark = result["benchmark"]
+    rs_line   = result["rs_line"]
+    rs_score  = result["rs_score"]
+    group_ret = result["group_ret"]
+    bench_ret = result["bench_ret"]
+
+    mas = calculate_mas(group_idx)
+
+    # 진입신호 (가격 수축)
+    window      = 3
+    roll_range  = group_idx.rolling(window).max() - group_idx.rolling(window).min()
+    price_ratio = roll_range / roll_range.shift(window)
+    signal      = ((price_ratio - 0.3) / (1.5 - 0.3)).clip(0, 1).fillna(0.5)
+
+    # 분배신호 (고저폭 급등)
+    prev_val_s    = group_idx.shift(1).replace(0, 1e-9)
+    expand_range  = (group_idx.rolling(window).max() - group_idx.rolling(window).min()) / prev_val_s
+    expand_signal = (expand_range / 0.05 / 3.0).clip(0, 1).fillna(0)
+
+    # ATR(%)
+    _prev_close = group_idx.shift(1)
+    _tr = (group_idx - _prev_close).abs()
+    _atr20 = _tr.rolling(20, min_periods=1).mean()
+    _atr_pct = _atr20 / group_idx * 100
+    atr_data = [round(float(v), 2) if not (v != v) else None for v in _atr_pct.values]
+
+    dates = [d.strftime("%Y-%m-%d") for d in group_idx.index]
+    N = len(dates)
+
+    def _sig_color(v):
+        if v < 0.33:   return "rgba(39,174,96,0.6)"
+        elif v < 0.66: return "rgba(243,156,18,0.6)"
+        else:          return "rgba(217,43,43,0.6)"
+
+    entry_colors  = [_sig_color(float(signal.iloc[i])) for i in range(N)]
+    expand_colors = [_sig_color(float(expand_signal.iloc[i])) for i in range(N)]
+
+    group_data = [round(float(v), 2) for v in group_idx.values]
+    bench_data = [round(float(v), 2) for v in benchmark.values]
+
+    ma_configs = [
+        ("MA5",    "ma5",    "#FF6D00", 1),
+        ("MA20",   "ma20",   "#8A2BE2", 1),
+        ("MA60",   "ma60",   "#008000", 1.5),
+        ("WMA100", "wma100", "#FFFFFF", 2),
+        ("MA120",  "ma120",  "#008B8B", 1.5),
+        ("MA200",  "ma200",  "#C0392B", 1.5),
+    ]
+    ma_series_list = []
+    for label, key, color, width in ma_configs:
+        vals = mas[key].reindex(group_idx.index)
+        data = [round(float(v), 2) if not (v != v) else None for v in vals]
+        ma_series_list.append({
+            "type": "line", "name": label, "data": data,
+            "xAxisIndex": 2, "yAxisIndex": 2,
+            "lineStyle": {"color": color, "width": width},
+            "itemStyle": {"color": color},
+            "symbol": "none", "smooth": False, "connectNulls": False,
+        })
+
+    rs_aligned = rs_line.reindex(group_idx.index).ffill().bfill()
+    rs_data = [round(float(v), 2) for v in rs_aligned.values]
+
+    period = min(252, N)
+    zoom_start = max(0, (1 - period / N) * 100) if N > 0 else 80
+
+    cur_val   = group_idx.iloc[-1]
+    prev_val  = group_idx.iloc[-2] if len(group_idx) >= 2 else cur_val
+    chg_pct   = (cur_val / prev_val - 1) * 100 if prev_val else 0
+    chg_sign  = "+" if chg_pct >= 0 else ""
+    chg_color = "#D92B2B" if chg_pct >= 0 else "#1A5ECC"
+    last_date = group_idx.index[-1].strftime("%Y.%m.%d")
+    rs_arrow  = "강세 ▲" if rs_score >= 0 else "약세 ▼"
+
+    LEFT, RIGHT = "8%", "8%"
+    option = {
+        "animation": False,
+        "backgroundColor": "#1a1a2e",
+        "title": [
+            {"text": "진입신호", "left": "1%", "top": "10%",
+             "textAlign": "left", "textVerticalAlign": "middle",
+             "textStyle": {"fontSize": 11, "color": "#CCC", "fontWeight": "bold"}},
+            {"text": "분배신호", "left": "1%", "top": "13%",
+             "textAlign": "left", "textVerticalAlign": "middle",
+             "textStyle": {"fontSize": 11, "color": "#CCC", "fontWeight": "bold"}},
+            {"text": "그룹지수", "left": "1%", "top": "35%",
+             "textAlign": "left", "textVerticalAlign": "middle",
+             "textStyle": {"fontSize": 11, "color": "#CCC", "fontWeight": "bold"}},
+            {"text": "RS", "left": "1%", "top": "65%",
+             "textAlign": "left", "textVerticalAlign": "middle",
+             "textStyle": {"fontSize": 11, "color": "#CCC", "fontWeight": "bold"}},
+            {"text": "ATR", "left": "1%", "top": "81%",
+             "textAlign": "left", "textVerticalAlign": "middle",
+             "textStyle": {"fontSize": 11, "color": "#CCC", "fontWeight": "bold"}},
+        ],
+        "grid": [
+            {"left": LEFT, "right": RIGHT, "top": "12%", "height": "3%"},   # 0: 분배신호
+            {"left": LEFT, "right": RIGHT, "top": "9%",  "height": "3%"},   # 1: 진입신호
+            {"left": LEFT, "right": RIGHT, "top": "16%", "height": "40%"},  # 2: 그룹지수+MA
+            {"left": LEFT, "right": RIGHT, "top": "58%", "height": "15%"},  # 3: RS
+            {"left": LEFT, "right": RIGHT, "top": "74%", "height": "15%"},  # 4: ATR
+        ],
+        "xAxis": [
+            {"type": "category", "data": dates, "gridIndex": 0,
+             "axisLabel": {"show": False}, "axisTick": {"show": False},
+             "axisLine": {"show": False}, "splitLine": {"show": False},
+             "axisPointer": {"label": {"show": False}}},
+            {"type": "category", "data": dates, "gridIndex": 1,
+             "axisLabel": {"show": False}, "axisTick": {"show": False},
+             "axisLine": {"show": False}, "splitLine": {"show": False},
+             "axisPointer": {"label": {"show": False}}},
+            {"type": "category", "data": dates, "gridIndex": 2,
+             "axisLabel": {"show": True, "fontSize": 10, "color": "#AAA", "formatter": "{value}"},
+             "axisTick": {"show": True},
+             "axisLine": {"lineStyle": {"color": "rgba(255,255,255,0.2)"}},
+             "splitLine": {"show": False},
+             "axisPointer": {"label": {"show": False}}},
+            {"type": "category", "data": dates, "gridIndex": 3,
+             "axisLabel": {"show": False}, "axisTick": {"show": False},
+             "axisLine": {"show": False}, "splitLine": {"show": False},
+             "axisPointer": {"label": {"show": False}}},
+            {"type": "category", "data": dates, "gridIndex": 4,
+             "axisLabel": {"show": True, "fontSize": 10, "color": "#AAA", "formatter": "{value}"},
+             "axisTick": {"show": True},
+             "axisLine": {"lineStyle": {"color": "rgba(255,255,255,0.2)"}},
+             "splitLine": {"show": False}},
+        ],
+        "yAxis": [
+            {"type": "value", "gridIndex": 0, "show": False, "min": 0, "max": 1,
+             "axisPointer": {"show": False}},
+            {"type": "value", "gridIndex": 1, "show": False, "min": 0, "max": 1,
+             "axisPointer": {"show": False}},
+            {"type": "value", "gridIndex": 2, "scale": True, "splitNumber": 6,
+             "axisLabel": {"fontSize": 10, "color": "#AAA"},
+             "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)", "type": "dotted"}},
+             "axisLine": {"show": False}, "position": "right",
+             "axisPointer": {"show": True, "snap": False, "label": {"show": True, "precision": 2}},
+             "name": "그룹지수", "nameLocation": "end",
+             "nameTextStyle": {"fontSize": 10, "color": "#888"}},
+            {"type": "value", "gridIndex": 3, "scale": True, "splitNumber": 3,
+             "axisLabel": {"fontSize": 10, "color": "#AAA"},
+             "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)", "type": "dotted"}},
+             "axisLine": {"show": False}, "position": "right",
+             "axisPointer": {"show": True, "snap": False, "label": {"show": True, "precision": 2}},
+             "name": "RS", "nameLocation": "end",
+             "nameTextStyle": {"fontSize": 10, "color": "#888"}},
+            {"type": "value", "gridIndex": 4, "scale": True, "splitNumber": 2,
+             "axisLabel": {"fontSize": 10, "color": "#AAA", "formatter": "{value}%"},
+             "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)", "type": "dotted"}},
+             "axisLine": {"show": False}, "position": "right",
+             "axisPointer": {"show": True, "snap": False, "label": {"show": True, "precision": 2}},
+             "name": "ATR(%)", "nameLocation": "end",
+             "nameTextStyle": {"fontSize": 10, "color": "#888"}},
+        ],
+        "dataZoom": [
+            {"type": "inside", "xAxisIndex": list(range(5)),
+             "start": zoom_start, "end": 100},
+        ],
+        "toolbox": {"show": False},
+        "legend": [{
+            "show": True,
+            "data": ["MA5", "MA20", "MA60", "WMA100", "MA120", "MA200", benchmark_name],
+            "left": 20, "top": 50,
+            "textStyle": {"color": "#BBB", "fontSize": 10},
+            "itemWidth": 18, "itemHeight": 2, "itemGap": 12,
+            "inactiveColor": "#555", "selector": False,
+        }],
+        "axisPointer": {
+            "link": [{"xAxisIndex": "all"}],
+            "lineStyle": {"color": "rgba(255,255,255,0.4)", "width": 1},
+        },
+        "tooltip": {
+            "trigger": "axis", "axisPointer": {"type": "cross"},
+            "backgroundColor": "rgba(30,30,30,0.85)",
+            "borderColor": "rgba(120,120,120,0.5)",
+            "textStyle": {"color": "#FFF", "fontSize": 11},
+            "confine": True, "order": "seriesAsc",
+        },
+        "series": [],
+    }
+
+    # 벤치마크
+    option["series"].append({
+        "type": "line", "name": benchmark_name, "xAxisIndex": 2, "yAxisIndex": 2,
+        "data": bench_data,
+        "lineStyle": {"color": "#2ECC71", "width": 1, "type": "dashed"},
+        "itemStyle": {"color": "#2ECC71"},
+        "symbol": "none", "smooth": False, "tooltip": {"show": False},
+    })
+    # 그룹지수
+    option["series"].append({
+        "type": "line", "name": group_name, "xAxisIndex": 2, "yAxisIndex": 2,
+        "data": group_data,
+        "lineStyle": {"color": "#D92B2B", "width": 2},
+        "itemStyle": {"color": "#D92B2B"},
+        "symbol": "none", "smooth": False,
+    })
+    # MA
+    option["series"].extend(ma_series_list)
+    # RS Line
+    option["series"].append({
+        "type": "line", "xAxisIndex": 3, "yAxisIndex": 3,
+        "data": rs_data,
+        "lineStyle": {"color": "#D92B2B", "width": 2},
+        "symbol": "none", "areaStyle": {"color": "rgba(217,43,43,0.15)"},
+    })
+    # RS 기준선
+    option["series"].append({
+        "type": "line", "xAxisIndex": 3, "yAxisIndex": 3, "data": [],
+        "markLine": {"silent": True, "symbol": "none",
+                     "lineStyle": {"color": "#999", "width": 1, "type": "dashed"},
+                     "data": [{"yAxis": 100}], "label": {"show": False}},
+    })
+    # ATR(%)
+    option["series"].append({
+        "type": "line", "name": "ATR(%)", "xAxisIndex": 4, "yAxisIndex": 4,
+        "data": atr_data,
+        "lineStyle": {"color": "#FF9800", "width": 1.5},
+        "itemStyle": {"color": "#FF9800"},
+        "symbol": "none", "areaStyle": {"color": "rgba(255,152,0,0.1)"},
+    })
+    # 진입신호
+    option["series"].append({
+        "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1,
+        "data": [{"value": 1, "itemStyle": {"color": entry_colors[i]}} for i in range(N)],
+        "barWidth": "100%", "barGap": "0%", "barCategoryGap": "0%", "animation": False,
+    })
+    option["series"].append({
+        "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1,
+        "data": [round(float(signal.iloc[i]), 2) for i in range(N)],
+        "barWidth": "0%", "itemStyle": {"color": "transparent"}, "animation": False,
+    })
+    # 분배신호
+    option["series"].append({
+        "type": "bar", "xAxisIndex": 0, "yAxisIndex": 0,
+        "data": [{"value": 1, "itemStyle": {"color": expand_colors[i]}} for i in range(N)],
+        "barWidth": "100%", "barGap": "0%", "barCategoryGap": "0%", "animation": False,
+    })
+    option["series"].append({
+        "type": "bar", "xAxisIndex": 0, "yAxisIndex": 0,
+        "data": [round(float(expand_signal.iloc[i]), 2) for i in range(N)],
+        "barWidth": "0%", "itemStyle": {"color": "transparent"}, "animation": False,
+    })
+
+    # 헤더
+    line1 = (
+        f"{{name|{group_name} 그룹지수}}  "
+        f"{{price|{cur_val:.2f} ({chg_sign}{chg_pct:.2f}%)}}  "
+        f"{{info|vs {benchmark_name}  |  {last_date}}}"
+    )
+    line2 = (
+        f"{{rs|RS Score: {rs_score:+.1f} {rs_arrow}}}  "
+        f"{{info||  그룹 {group_ret:+.2f}%  |  {benchmark_name} {bench_ret:+.2f}%}}"
+    )
+    option["graphic"] = [
+        {"type": "text", "left": 20, "top": 10,
+         "style": {"text": line1, "rich": {
+             "name":  {"fontSize": 16, "fontWeight": "bold", "fill": "#EEE"},
+             "price": {"fontSize": 14, "fontWeight": "bold", "fill": chg_color},
+             "info":  {"fontSize": 12, "fill": "#999"},
+         }}},
+        {"type": "text", "left": 20, "top": 32,
+         "style": {"text": line2, "rich": {
+             "rs":   {"fontSize": 12, "fontWeight": "bold",
+                      "fill": "#D92B2B" if rs_score >= 0 else "#1A5ECC"},
+             "info": {"fontSize": 12, "fill": "#999"},
+         }}},
+    ]
+
+    st_echarts(options=option, height="900px",
+               key=f"ec_group_{group_name}_{last_date}")
 
 
 # ─────────────────────────────────────────────

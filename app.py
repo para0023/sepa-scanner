@@ -4809,8 +4809,7 @@ elif st.session_state.view == "group_chart":
         c2.metric(f"그룹 수익률 ({period}일)", f"{gi['group_ret']:+.2f}%")
         c3.metric(f"{benchmark_name} 수익률", f"{gi['bench_ret']:+.2f}%")
 
-        fig = build_group_chart(gi, group_name, benchmark_name)
-        st.plotly_chart(fig, use_container_width=True)
+        build_group_chart(gi, group_name, benchmark_name)
 
         # ── 그룹 내 종목별 RS 테이블 ──────────────────
         st.subheader("📊 종목별 RS")
