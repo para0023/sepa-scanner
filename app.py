@@ -318,6 +318,7 @@ with st.sidebar:
     if st.session_state.get("view") == "chart":
         return_to = st.session_state.get("return_to_view", "rs_scanner")
         _back_labels = {
+            "dashboard": "← Main으로",
             "rs_scanner": "← RS Scanner로",
             "pattern_scanner": "← SEPA Scanner로",
             "short_scanner": "← Short Scanner로",
@@ -1198,51 +1199,41 @@ def show_dashboard():
             kr_total = 0
             if not kr_open.empty:
                 st.markdown("**한국**")
-                _kr_summary = kr_open[["종목명", "평균매수가", "수량", "손절가", "경과일"]].copy()
+                _kr_summary = kr_open[["종목코드", "종목명", "평균매수가", "수량", "손절가", "경과일"]].copy()
                 _kr_summary["매수금액"] = _kr_summary["평균매수가"] * _kr_summary["수량"]
                 kr_total = _kr_summary["매수금액"].sum()
-                # 합계 행
-                _kr_total_row = pd.DataFrame([{
-                    "종목명": "합계",
-                    "평균매수가": None, "수량": None, "손절가": None, "경과일": None,
-                    "매수금액": kr_total,
-                }])
-                _kr_summary = pd.concat([_kr_summary, _kr_total_row], ignore_index=True)
-                st.dataframe(
-                    _kr_summary.style.format({
-                        "평균매수가": lambda v: f"{v:,.0f}" if pd.notna(v) else "",
-                        "수량": lambda v: f"{v:,.0f}" if pd.notna(v) else "",
-                        "손절가": lambda v: f"{v:,.0f}" if pd.notna(v) else "",
-                        "경과일": lambda v: f"{v:.0f}" if pd.notna(v) else "",
-                        "매수금액": "{:,.0f}",
-                    }),
-                    use_container_width=True, hide_index=True,
-                )
+                _kr_result = _aggrid(_kr_summary, key="dash_kr_hold", height=min(250, 60 + len(_kr_summary) * 35),
+                                     click_nav=True, price_cols=["평균매수가", "손절가", "매수금액"])
+                _kr_sel = _kr_result["selected_rows"]
+                if _kr_sel is not None and len(_kr_sel) > 0:
+                    import pandas as _pd
+                    _r = _kr_sel.iloc[0] if isinstance(_kr_sel, _pd.DataFrame) else _kr_sel[0]
+                    st.session_state.view = "chart"
+                    st.session_state.chart_ticker = _r.get("종목코드", "") if isinstance(_r, dict) else _r.get("종목코드", "")
+                    st.session_state.chart_period = 60
+                    st.session_state.sidebar_ticker = st.session_state.chart_ticker
+                    st.session_state.return_to_view = "dashboard"
+                    st.rerun()
 
             # 미국
             us_total = 0
             if not us_open.empty:
                 st.markdown("**미국**")
-                _us_summary = us_open[["종목명", "평균매수가", "수량", "손절가", "경과일"]].copy()
+                _us_summary = us_open[["종목코드", "종목명", "평균매수가", "수량", "손절가", "경과일"]].copy()
                 _us_summary["매수금액"] = _us_summary["평균매수가"] * _us_summary["수량"]
                 us_total = _us_summary["매수금액"].sum()
-                # 합계 행
-                _us_total_row = pd.DataFrame([{
-                    "종목명": "합계",
-                    "평균매수가": None, "수량": None, "손절가": None, "경과일": None,
-                    "매수금액": us_total,
-                }])
-                _us_summary = pd.concat([_us_summary, _us_total_row], ignore_index=True)
-                st.dataframe(
-                    _us_summary.style.format({
-                        "평균매수가": lambda v: f"{v:,.2f}" if pd.notna(v) else "",
-                        "수량": lambda v: f"{v:,.0f}" if pd.notna(v) else "",
-                        "손절가": lambda v: f"{v:,.2f}" if pd.notna(v) else "",
-                        "경과일": lambda v: f"{v:.0f}" if pd.notna(v) else "",
-                        "매수금액": lambda v: f"${v:,.2f}" if pd.notna(v) else "",
-                    }),
-                    use_container_width=True, hide_index=True,
-                )
+                _us_result = _aggrid(_us_summary, key="dash_us_hold", height=min(250, 60 + len(_us_summary) * 35),
+                                     click_nav=True, price_cols=["평균매수가", "손절가", "매수금액"], price_decimals=2)
+                _us_sel = _us_result["selected_rows"]
+                if _us_sel is not None and len(_us_sel) > 0:
+                    import pandas as _pd
+                    _r = _us_sel.iloc[0] if isinstance(_us_sel, _pd.DataFrame) else _us_sel[0]
+                    st.session_state.view = "chart"
+                    st.session_state.chart_ticker = _r.get("종목코드", "") if isinstance(_r, dict) else _r.get("종목코드", "")
+                    st.session_state.chart_period = 60
+                    st.session_state.sidebar_ticker = st.session_state.chart_ticker
+                    st.session_state.return_to_view = "dashboard"
+                    st.rerun()
 
     with dash_right:
         # ── 3) 손절선 근접 알림 ──────────────────────────────
@@ -1273,6 +1264,7 @@ def show_dashboard():
             else:
                 dist_pct = None
             alerts.append({
+                "종목코드": ticker,
                 "시장": mkt,
                 "종목명": name,
                 "현재가": cur if cur > 0 else None,
@@ -1282,22 +1274,19 @@ def show_dashboard():
 
         if alerts:
             df_alerts = pd.DataFrame(alerts).sort_values("손절거리(%)")
-            def _alert_color(val):
-                if pd.isna(val):
-                    return ""
-                if val <= 3:
-                    return "background-color: rgba(255,0,0,0.3)"
-                elif val <= 5:
-                    return "background-color: rgba(255,165,0,0.2)"
-                return ""
-            st.dataframe(
-                df_alerts.style.map(_alert_color, subset=["손절거리(%)"]).format({
-                    "현재가": lambda v: f"{v:,.2f}" if pd.notna(v) else "—",
-                    "손절가": "{:,.2f}",
-                    "손절거리(%)": lambda v: f"{v:.2f}%" if pd.notna(v) else "—",
-                }),
-                use_container_width=True, hide_index=True,
-            )
+            _alert_result = _aggrid(df_alerts, key="dash_stop_alert",
+                                    height=min(250, 60 + len(df_alerts) * 35),
+                                    click_nav=True, price_cols=["현재가", "손절가"])
+            _alert_sel = _alert_result["selected_rows"]
+            if _alert_sel is not None and len(_alert_sel) > 0:
+                import pandas as _pd
+                _r = _alert_sel.iloc[0] if isinstance(_alert_sel, _pd.DataFrame) else _alert_sel[0]
+                st.session_state.view = "chart"
+                st.session_state.chart_ticker = _r.get("종목코드", "") if isinstance(_r, dict) else _r.get("종목코드", "")
+                st.session_state.chart_period = 60
+                st.session_state.sidebar_ticker = st.session_state.chart_ticker
+                st.session_state.return_to_view = "dashboard"
+                st.rerun()
         else:
             st.info("손절가가 설정된 보유 종목이 없습니다.")
 
