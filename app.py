@@ -1195,15 +1195,34 @@ def show_dashboard():
         if kr_open.empty and us_open.empty:
             st.info("보유 중인 종목이 없습니다.")
         else:
+            # 현재가 일괄 조회 (보유종목 수익률 계산용)
+            _all_tickers = []
+            if not kr_open.empty:
+                _all_tickers += kr_open["종목코드"].tolist()
+            if not us_open.empty:
+                _all_tickers += us_open["종목코드"].tolist()
+            _cur_prices = {}
+            if _all_tickers:
+                from concurrent.futures import ThreadPoolExecutor
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    _cp_results = list(pool.map(_fetch_current_price, _all_tickers))
+                _cur_prices = dict(zip(_all_tickers, _cp_results))
+
             # 한국
             kr_total = 0
             if not kr_open.empty:
                 st.markdown("**한국**")
-                _kr_summary = kr_open[["종목코드", "종목명", "평균매수가", "수량", "손절가", "경과일"]].copy()
-                _kr_summary["매수금액"] = _kr_summary["평균매수가"] * _kr_summary["수량"]
+                _kr_summary = kr_open[["종목코드", "종목명", "평균매수가", "손절가", "경과일"]].copy()
+                _kr_summary["매수금액"] = kr_open["평균매수가"] * kr_open["수량"]
+                _kr_summary["수익률(%)"] = _kr_summary["종목코드"].map(
+                    lambda t: round((_cur_prices.get(t, 0) / kr_open.loc[kr_open["종목코드"] == t, "평균매수가"].values[0] - 1) * 100, 2)
+                    if _cur_prices.get(t, 0) > 0 else None
+                )
+                _kr_summary = _kr_summary.dropna(subset=["종목명"])
                 kr_total = _kr_summary["매수금액"].sum()
                 _kr_result = _aggrid(_kr_summary, key="dash_kr_hold", height=min(250, 60 + len(_kr_summary) * 35),
-                                     click_nav=True, price_cols=["평균매수가", "손절가", "매수금액"])
+                                     click_nav=True, price_cols=["평균매수가", "손절가", "매수금액"],
+                                     color_map={"수익률(%)": "red_positive"})
                 _kr_sel = _kr_result["selected_rows"]
                 if _kr_sel is not None and len(_kr_sel) > 0:
                     import pandas as _pd
@@ -1219,11 +1238,17 @@ def show_dashboard():
             us_total = 0
             if not us_open.empty:
                 st.markdown("**미국**")
-                _us_summary = us_open[["종목코드", "종목명", "평균매수가", "수량", "손절가", "경과일"]].copy()
-                _us_summary["매수금액"] = _us_summary["평균매수가"] * _us_summary["수량"]
+                _us_summary = us_open[["종목코드", "종목명", "평균매수가", "손절가", "경과일"]].copy()
+                _us_summary["매수금액"] = us_open["평균매수가"] * us_open["수량"]
+                _us_summary["수익률(%)"] = _us_summary["종목코드"].map(
+                    lambda t: round((_cur_prices.get(t, 0) / us_open.loc[us_open["종목코드"] == t, "평균매수가"].values[0] - 1) * 100, 2)
+                    if _cur_prices.get(t, 0) > 0 else None
+                )
+                _us_summary = _us_summary.dropna(subset=["종목명"])
                 us_total = _us_summary["매수금액"].sum()
                 _us_result = _aggrid(_us_summary, key="dash_us_hold", height=min(250, 60 + len(_us_summary) * 35),
-                                     click_nav=True, price_cols=["평균매수가", "손절가", "매수금액"], price_decimals=2)
+                                     click_nav=True, price_cols=["평균매수가", "손절가", "매수금액"], price_decimals=2,
+                                     color_map={"수익률(%)": "red_positive"})
                 _us_sel = _us_result["selected_rows"]
                 if _us_sel is not None and len(_us_sel) > 0:
                     import pandas as _pd
