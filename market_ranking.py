@@ -620,6 +620,14 @@ def _detect_vcp_single(
         if base_period < 15:
             return None
 
+        # 최종피벗(베이스 상단) 시점이 MA60 위에 있어야 함 (상승 추세 중 고점만 허용)
+        _ma60_at_top = close.rolling(60, min_periods=60).mean()
+        if len(_ma60_at_top) > base_top_loc:
+            _ma60_val = _ma60_at_top.iloc[-(base_period + 1)] if base_period + 1 <= len(_ma60_at_top) else None
+            if _ma60_val is not None and not pd.isna(_ma60_val):
+                if base_top_price < _ma60_val:
+                    return None
+
         # 베이스 구간 (베이스 상단 포함)
         base_close = close_window.iloc[base_top_loc:]
         if len(base_close) < 10:
