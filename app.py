@@ -1221,7 +1221,7 @@ def show_dashboard():
                 _kr_summary = _kr_summary.dropna(subset=["종목명"])
                 kr_total = _kr_summary["매수금액"].sum()
                 _kr_result = _aggrid(_kr_summary, key="dash_kr_hold", height=min(250, 60 + len(_kr_summary) * 35),
-                                     click_nav=True, price_cols=["평균매수가", "손절가", "매수금액"],
+                                     click_nav=True, fit_columns=True, price_cols=["평균매수가", "손절가", "매수금액"],
                                      color_map={"수익률(%)": "red_positive"})
                 _kr_sel = _kr_result["selected_rows"]
                 if _kr_sel is not None and len(_kr_sel) > 0:
@@ -1247,7 +1247,7 @@ def show_dashboard():
                 _us_summary = _us_summary.dropna(subset=["종목명"])
                 us_total = _us_summary["매수금액"].sum()
                 _us_result = _aggrid(_us_summary, key="dash_us_hold", height=min(250, 60 + len(_us_summary) * 35),
-                                     click_nav=True, price_cols=["평균매수가", "손절가", "매수금액"], price_decimals=2,
+                                     click_nav=True, fit_columns=True, price_cols=["평균매수가", "손절가", "매수금액"], price_decimals=2,
                                      color_map={"수익률(%)": "red_positive"})
                 _us_sel = _us_result["selected_rows"]
                 if _us_sel is not None and len(_us_sel) > 0:
@@ -1301,7 +1301,7 @@ def show_dashboard():
             df_alerts = pd.DataFrame(alerts).sort_values("손절거리(%)")
             _alert_result = _aggrid(df_alerts, key="dash_stop_alert",
                                     height=min(250, 60 + len(df_alerts) * 35),
-                                    click_nav=True, price_cols=["현재가", "손절가"])
+                                    click_nav=True, fit_columns=True, price_cols=["현재가", "손절가"])
             _alert_sel = _alert_result["selected_rows"]
             if _alert_sel is not None and len(_alert_sel) > 0:
                 import pandas as _pd
