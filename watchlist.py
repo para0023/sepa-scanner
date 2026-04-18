@@ -888,7 +888,7 @@ def build_group_chart(result: dict, group_name: str, benchmark_name: str):
             "backgroundColor": "rgba(30,30,30,0.85)",
             "borderColor": "rgba(120,120,120,0.5)",
             "textStyle": {"color": "#FFF", "fontSize": 11},
-            "confine": True, "order": "seriesAsc",
+            "confine": True, "order": "seriesDesc",
         },
         "series": [],
     }

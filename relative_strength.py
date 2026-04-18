@@ -1259,7 +1259,7 @@ def build_chart_echarts(
             "borderColor": "rgba(120,120,120,0.5)",
             "textStyle": {"color": "#FFF", "fontSize": 11},
             "confine": True,
-            "order": "seriesAsc",
+            "order": "seriesDesc",
         },
         "series": [],
     }
