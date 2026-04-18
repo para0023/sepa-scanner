@@ -1218,7 +1218,7 @@ def show_dashboard():
                     lambda t: round((_cur_prices.get(t, 0) / kr_open.loc[kr_open["종목코드"] == t, "평균매수가"].values[0] - 1) * 100, 2)
                     if _cur_prices.get(t, 0) > 0 else None
                 )
-                _kr_summary = _kr_summary.dropna(subset=["종목명"])
+                _kr_summary = _kr_summary.dropna(subset=["종목명"]).sort_values("매수금액", ascending=False)
                 kr_total = _kr_summary["매수금액"].sum()
                 _kr_result = _aggrid(_kr_summary, key="dash_kr_hold", height=min(250, 60 + len(_kr_summary) * 35),
                                      click_nav=True, fit_columns=True, price_cols=["평균매수가", "손절가", "매수금액"],
@@ -1244,7 +1244,7 @@ def show_dashboard():
                     lambda t: round((_cur_prices.get(t, 0) / us_open.loc[us_open["종목코드"] == t, "평균매수가"].values[0] - 1) * 100, 2)
                     if _cur_prices.get(t, 0) > 0 else None
                 )
-                _us_summary = _us_summary.dropna(subset=["종목명"])
+                _us_summary = _us_summary.dropna(subset=["종목명"]).sort_values("매수금액", ascending=False)
                 us_total = _us_summary["매수금액"].sum()
                 _us_result = _aggrid(_us_summary, key="dash_us_hold", height=min(250, 60 + len(_us_summary) * 35),
                                      click_nav=True, fit_columns=True, price_cols=["평균매수가", "손절가", "매수금액"], price_decimals=2,
