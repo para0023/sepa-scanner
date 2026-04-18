@@ -119,7 +119,7 @@ def fetch_data(ticker: str, benchmark_code: str, period: int):
     MA200 계산을 위해 period + 넉넉한 버퍼(350 거래일분) 데이터 수집.
     """
     # MA200 계산 위해 최소 200 거래일 + 여유분 확보
-    fetch_days = max(max(period, 200) * 2 + 150, 730)  # 최소 2년(730 캘린더일)
+    fetch_days = max(max(period, 200) * 2 + 150, 1100)  # 최소 3년(1100 캘린더일)
     end_date   = datetime.now()
     start_date = end_date - timedelta(days=fetch_days)
 
