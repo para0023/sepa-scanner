@@ -1259,14 +1259,46 @@ def build_chart_echarts(
             "borderColor": "rgba(120,120,120,0.5)",
             "textStyle": {"color": "#FFF", "fontSize": 11},
             "confine": True,
-            "order": "seriesDesc",
+            "order": "seriesAsc",
         },
         "series": [],
     }
 
-    # ── Series 추가 ──
-    # tooltip 표시 순서: 주가 → 거래량 → RS → 진입신호 → 분배신호
+    # ── Series 추가 (패널 순서: 진입→분배→주가→거래량→RS→ATR) ──
 
+    # 1) 진입신호
+    entry_vals = [round(float(signal.iloc[i]), 2) for i in range(N)]
+    option["series"].append({
+        "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1,
+        "data": [{"value": 1, "itemStyle": {"color": entry_colors[i]}}
+                 for i in range(N)],
+        "barWidth": "100%", "barGap": "0%", "barCategoryGap": "0%",
+        "animation": False, "tooltip": {"show": False},
+    })
+    option["series"].append({
+        "type": "bar", "name": "진입신호", "xAxisIndex": 1, "yAxisIndex": 1,
+        "data": entry_vals,
+        "barWidth": "0%", "itemStyle": {"color": "transparent"},
+        "animation": False,
+    })
+
+    # 2) 분배신호
+    expand_vals = [round(float(sell_signal.iloc[i]), 2) for i in range(N)]
+    option["series"].append({
+        "type": "bar", "xAxisIndex": 0, "yAxisIndex": 0,
+        "data": [{"value": 1, "itemStyle": {"color": expand_colors[i]}}
+                 for i in range(N)],
+        "barWidth": "100%", "barGap": "0%", "barCategoryGap": "0%",
+        "animation": False, "tooltip": {"show": False},
+    })
+    option["series"].append({
+        "type": "bar", "name": "분배신호", "xAxisIndex": 0, "yAxisIndex": 0,
+        "data": expand_vals,
+        "barWidth": "0%", "itemStyle": {"color": "transparent"},
+        "animation": False,
+    })
+
+    # 3) 주가 패널: OHLC + MA + 벤치마크
     # 벤치마크 비교선
     option["series"].append({
         "type": "line", "name": benchmark_name, "xAxisIndex": 2, "yAxisIndex": 2,
@@ -1276,8 +1308,7 @@ def build_chart_echarts(
         "symbol": "none", "smooth": False,
         "tooltip": {"show": False},
     })
-
-    # 캔들스틱 (tooltip 숨김 — OHLC는 별도 시리즈로 등락률 포함 표시)
+    # 캔들스틱 (tooltip 숨김)
     option["series"].append({
         "type": "candlestick", "xAxisIndex": 2, "yAxisIndex": 2,
         "data": ohlc,
@@ -1287,8 +1318,7 @@ def build_chart_echarts(
         },
         "tooltip": {"show": False},
     })
-
-    # OHLC + 전일종가대비 등락률 (호버 표시용, 투명 라인)
+    # OHLC 등락률 (호버 표시용)
     _ohlc_colors = {"종가": "#D92B2B", "시가": "#FF9800", "저가": "#1A5ECC", "고가": "#E91E63"}
     for label in ["종가", "시가", "저가", "고가"]:
         option["series"].append({
@@ -1297,7 +1327,6 @@ def build_chart_echarts(
             "symbol": "none", "lineStyle": {"width": 0, "color": "transparent"},
             "itemStyle": {"color": _ohlc_colors[label]},
         })
-
     # 이동평균선
     option["series"].extend(ma_series_list)
 
@@ -1451,39 +1480,7 @@ def build_chart_echarts(
         "areaStyle": {"color": "rgba(255,152,0,0.1)"},
     })
 
-    # 진입신호 (단칸 색상 블록, 호버로 수치 확인)
-    entry_vals = [round(float(signal.iloc[i]), 2) for i in range(N)]
-    option["series"].append({
-        "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1,
-        "data": [{"value": 1, "itemStyle": {"color": entry_colors[i]}}
-                 for i in range(N)],
-        "barWidth": "100%", "barGap": "0%", "barCategoryGap": "0%",
-        "animation": False,
-    })
-    # 진입신호 수치 (투명, 호버 전용)
-    option["series"].append({
-        "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1,
-        "data": entry_vals,
-        "barWidth": "0%", "itemStyle": {"color": "transparent"},
-        "animation": False,
-    })
-
-    # 분배신호 (단칸 색상 블록, 호버로 수치 확인)
-    expand_vals = [round(float(sell_signal.iloc[i]), 2) for i in range(N)]
-    option["series"].append({
-        "type": "bar", "xAxisIndex": 0, "yAxisIndex": 0,
-        "data": [{"value": 1, "itemStyle": {"color": expand_colors[i]}}
-                 for i in range(N)],
-        "barWidth": "100%", "barGap": "0%", "barCategoryGap": "0%",
-        "animation": False,
-    })
-    # 분배신호 수치 (투명, 호버 전용)
-    option["series"].append({
-        "type": "bar", "xAxisIndex": 0, "yAxisIndex": 0,
-        "data": expand_vals,
-        "barWidth": "0%", "itemStyle": {"color": "transparent"},
-        "animation": False,
-    })
+    # (진입신호/분배신호는 위에서 이미 추가됨)
 
     # ════════════════════════════════════════════
     # 차트 내부 헤더 (graphic rich text)
