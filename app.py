@@ -251,14 +251,14 @@ with st.sidebar:
     if st.session_state.get("view") == "group_chart":
         period = st.slider(
             "분석 기간 (거래일)",
-            min_value=20, max_value=250, value=st.session_state.get("wl_chart_period", 60), step=5,
+            min_value=20, max_value=756, value=st.session_state.get("wl_chart_period", 60), step=5,
             key="gc_period",
         )
         st.session_state["wl_chart_period"] = period
     else:
         period = st.slider(
             "분석 기간 (거래일)",
-            min_value=10, max_value=250, value=60, step=5,
+            min_value=10, max_value=756, value=60, step=5,
             help="기본 60일. 길수록 중장기 추세가 보입니다.",
         )
 
