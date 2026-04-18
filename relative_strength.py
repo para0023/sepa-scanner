@@ -1132,21 +1132,21 @@ def build_chart_echarts(
              "textStyle": {"fontSize": 11, "color": "#CCC", "fontWeight": "bold"}},
         ],
         "grid": [
-            # tooltip 순서 제어를 위해 gridIndex 재배치
-            {"left": LEFT, "right": RIGHT, "top": "12%", "height": "3%"},   # 0: 분배신호
-            {"left": LEFT, "right": RIGHT, "top": "9%",  "height": "3%"},   # 1: 진입신호
+            # gridIndex = visual top-to-bottom order
+            {"left": LEFT, "right": RIGHT, "top": "9%",  "height": "3%"},   # 0: 진입신호
+            {"left": LEFT, "right": RIGHT, "top": "12%", "height": "3%"},   # 1: 분배신호
             {"left": LEFT, "right": RIGHT, "top": "16%", "height": "33%"},  # 2: 주가
-            {"left": LEFT, "right": RIGHT, "top": "62%", "height": "11%"},  # 3: RS
-            {"left": LEFT, "right": RIGHT, "top": "50%", "height": "11%"},  # 4: 거래량
+            {"left": LEFT, "right": RIGHT, "top": "50%", "height": "11%"},  # 3: 거래량
+            {"left": LEFT, "right": RIGHT, "top": "62%", "height": "11%"},  # 4: RS
             {"left": LEFT, "right": RIGHT, "top": "74%", "height": "11%"},  # 5: ATR
         ],
         "xAxis": [
-            # 0: 분배신호 — 라벨 숨김
+            # 0: 진입신호 — 라벨 숨김
             {"type": "category", "data": dates, "gridIndex": 0,
              "axisLabel": {"show": False}, "axisTick": {"show": False},
              "axisLine": {"show": False}, "splitLine": {"show": False},
              "axisPointer": {"label": {"show": False}}},
-            # 1: 진입신호 — 라벨 숨김
+            # 1: 분배신호 — 라벨 숨김
             {"type": "category", "data": dates, "gridIndex": 1,
              "axisLabel": {"show": False}, "axisTick": {"show": False},
              "axisLine": {"show": False}, "splitLine": {"show": False},
@@ -1159,13 +1159,12 @@ def build_chart_echarts(
              "axisLine": {"lineStyle": {"color": "rgba(255,255,255,0.2)"}},
              "splitLine": {"show": False},
              "axisPointer": {"label": {"show": False}}},
-            # 3: RS — 라벨 숨김
+            # 3: 거래량 — 라벨 숨김
             {"type": "category", "data": dates, "gridIndex": 3,
              "axisLabel": {"show": False}, "axisTick": {"show": False},
              "axisLine": {"show": False}, "splitLine": {"show": False},
              "axisPointer": {"label": {"show": False}}},
-
-            # 4: 거래량 — 라벨 숨김
+            # 4: RS — 라벨 숨김
             {"type": "category", "data": dates, "gridIndex": 4,
              "axisLabel": {"show": False}, "axisTick": {"show": False},
              "axisLine": {"show": False}, "splitLine": {"show": False},
@@ -1179,10 +1178,10 @@ def build_chart_echarts(
              "splitLine": {"show": False}},
         ],
         "yAxis": [
-            # 0: 분배신호 (숨김)
+            # 0: 진입신호 (숨김)
             {"type": "value", "gridIndex": 0, "show": False, "min": 0, "max": 1,
              "axisPointer": {"show": False}},
-            # 1: 진입신호 (숨김)
+            # 1: 분배신호 (숨김)
             {"type": "value", "gridIndex": 1, "show": False, "min": 0, "max": 1,
              "axisPointer": {"show": False}},
             # 2: 주가
@@ -1195,18 +1194,8 @@ def build_chart_echarts(
                              "label": {"show": True, "precision": 0 if is_kr else 2}},
              "name": f"주가 ({'원' if is_kr else 'USD'})", "nameLocation": "end",
              "nameTextStyle": {"fontSize": 10, "color": "#888"}},
-            # 3: RS
-            {"type": "value", "gridIndex": 3, "scale": True, "splitNumber": 3,
-             "axisLabel": {"fontSize": 10, "color": "#AAA"},
-             "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)", "type": "dotted"}},
-             "axisLine": {"show": False},
-             "position": "right",
-             "axisPointer": {"show": True, "snap": False,
-                             "label": {"show": True, "precision": 2}},
-             "name": "RS", "nameLocation": "end",
-             "nameTextStyle": {"fontSize": 10, "color": "#888"}},
-            # 4: 거래량
-            {"type": "value", "gridIndex": 4, "scale": True, "splitNumber": 2,
+            # 3: 거래량
+            {"type": "value", "gridIndex": 3, "scale": True, "splitNumber": 2,
              "axisLabel": {"fontSize": 10, "color": "#AAA"},
              "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)", "type": "dotted"}},
              "axisLine": {"show": False},
@@ -1214,6 +1203,16 @@ def build_chart_echarts(
              "axisPointer": {"show": True, "snap": False,
                              "label": {"show": True, "precision": 0}},
              "name": "거래량", "nameLocation": "end",
+             "nameTextStyle": {"fontSize": 10, "color": "#888"}},
+            # 4: RS
+            {"type": "value", "gridIndex": 4, "scale": True, "splitNumber": 3,
+             "axisLabel": {"fontSize": 10, "color": "#AAA"},
+             "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)", "type": "dotted"}},
+             "axisLine": {"show": False},
+             "position": "right",
+             "axisPointer": {"show": True, "snap": False,
+                             "label": {"show": True, "precision": 2}},
+             "name": "RS", "nameLocation": "end",
              "nameTextStyle": {"fontSize": 10, "color": "#888"}},
             # 5: 등락률 (숨김, 주가 grid에 겹침 — 호버 전용)
             {"type": "value", "gridIndex": 2, "show": False,
@@ -1269,14 +1268,14 @@ def build_chart_echarts(
     # 1) 진입신호
     entry_vals = [round(float(signal.iloc[i]), 2) for i in range(N)]
     option["series"].append({
-        "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1,
+        "type": "bar", "xAxisIndex": 0, "yAxisIndex": 0,
         "data": [{"value": 1, "itemStyle": {"color": entry_colors[i]}}
                  for i in range(N)],
         "barWidth": "100%", "barGap": "0%", "barCategoryGap": "0%",
         "animation": False, "tooltip": {"show": False},
     })
     option["series"].append({
-        "type": "bar", "name": "진입신호", "xAxisIndex": 1, "yAxisIndex": 1,
+        "type": "bar", "name": "진입신호", "xAxisIndex": 0, "yAxisIndex": 0,
         "data": entry_vals,
         "barWidth": "0%", "itemStyle": {"color": "transparent"},
         "animation": False,
@@ -1285,14 +1284,14 @@ def build_chart_echarts(
     # 2) 분배신호
     expand_vals = [round(float(sell_signal.iloc[i]), 2) for i in range(N)]
     option["series"].append({
-        "type": "bar", "xAxisIndex": 0, "yAxisIndex": 0,
+        "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1,
         "data": [{"value": 1, "itemStyle": {"color": expand_colors[i]}}
                  for i in range(N)],
         "barWidth": "100%", "barGap": "0%", "barCategoryGap": "0%",
         "animation": False, "tooltip": {"show": False},
     })
     option["series"].append({
-        "type": "bar", "name": "분배신호", "xAxisIndex": 0, "yAxisIndex": 0,
+        "type": "bar", "name": "분배신호", "xAxisIndex": 1, "yAxisIndex": 1,
         "data": expand_vals,
         "barWidth": "0%", "itemStyle": {"color": "transparent"},
         "animation": False,
@@ -1427,13 +1426,13 @@ def build_chart_echarts(
 
     # 거래량 바
     option["series"].append({
-        "type": "bar", "xAxisIndex": 4, "yAxisIndex": 4,
+        "type": "bar", "xAxisIndex": 3, "yAxisIndex": 3,
         "data": vol_data, "barWidth": "60%",
     })
 
     # 거래량 MA5
     option["series"].append({
-        "type": "line", "name": "Vol MA5", "xAxisIndex": 4, "yAxisIndex": 4,
+        "type": "line", "name": "Vol MA5", "xAxisIndex": 3, "yAxisIndex": 3,
         "data": vol_ma5_data,
         "lineStyle": {"color": "#29B6F6", "width": 1},
         "itemStyle": {"color": "#29B6F6"},
@@ -1442,7 +1441,7 @@ def build_chart_echarts(
 
     # 거래량 MA60
     option["series"].append({
-        "type": "line", "name": "Vol MA60", "xAxisIndex": 4, "yAxisIndex": 4,
+        "type": "line", "name": "Vol MA60", "xAxisIndex": 3, "yAxisIndex": 3,
         "data": vol_ma_data,
         "lineStyle": {"color": "#F39C12", "width": 1},
         "itemStyle": {"color": "#F39C12"},
@@ -1451,7 +1450,7 @@ def build_chart_echarts(
 
     # RS Line
     option["series"].append({
-        "type": "line", "xAxisIndex": 3, "yAxisIndex": 3,
+        "type": "line", "xAxisIndex": 4, "yAxisIndex": 4,
         "data": rs_data,
         "lineStyle": {"color": "#D92B2B", "width": 2},
         "symbol": "none",
@@ -1460,7 +1459,7 @@ def build_chart_echarts(
 
     # RS 기준선 (100)
     option["series"].append({
-        "type": "line", "xAxisIndex": 3, "yAxisIndex": 3,
+        "type": "line", "xAxisIndex": 4, "yAxisIndex": 4,
         "data": [],
         "markLine": {
             "silent": True, "symbol": "none",
