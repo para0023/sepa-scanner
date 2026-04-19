@@ -2029,74 +2029,135 @@ def _show_vcp_table(market: str, auto_calc: bool = True):
         st.rerun()
 
 
-def show_universe():
-    """기타순위목록 — 시가총액순/등락률순/거래량순"""
-    import FinanceDataReader as _fdr
+def _univ_click_handler(result):
+    """기타순위목록 테이블 클릭 → 차트 이동"""
+    selected = result["selected_rows"]
+    if selected is not None and len(selected) > 0:
+        import pandas as _pd
+        row = selected.iloc[0] if isinstance(selected, _pd.DataFrame) else selected[0]
+        ticker = row.get("종목코드", "") if isinstance(row, dict) else row.get("종목코드", "")
+        if ticker:
+            st.session_state.view = "chart"
+            st.session_state.chart_ticker = ticker
+            st.session_state.chart_name = row.get("종목명", "") if isinstance(row, dict) else row.get("종목명", "")
+            st.session_state.chart_period = 60
+            st.session_state.sidebar_ticker = ticker
+            st.session_state.return_to_view = "universe"
+            st.rerun()
 
+
+def _load_listing(market):
+    """FDR 종목 리스트 캐시 로드"""
+    import FinanceDataReader as _fdr
+    cache_key = f"universe_{market}"
+    if cache_key not in st.session_state:
+        with st.spinner(f"{market} 종목 로딩..."):
+            listing = _fdr.StockListing(market)
+            df = listing[["Code", "Name", "Close", "Changes", "ChagesRatio", "Volume", "Marcap"]].copy()
+            df = df.rename(columns={
+                "Code": "종목코드", "Name": "종목명", "Close": "현재가",
+                "Changes": "전일대비", "ChagesRatio": "등락률(%)",
+                "Volume": "거래량", "Marcap": "시가총액",
+            })
+            df = df.dropna(subset=["종목명", "현재가"])
+            df["현재가"] = df["현재가"].astype(int)
+            df["시가총액(억)"] = (df["시가총액"] / 1e8).astype(int)
+            df = df.drop(columns=["시가총액"])
+            st.session_state[cache_key] = df
+    return st.session_state[cache_key]
+
+
+def show_universe():
+    """기타순위목록 — 시장순위 + 52주 신고가"""
     st.title("📋 기타순위목록")
     st.caption("시장별 순위 리스트 · 행 클릭 시 차트로 이동")
 
-    tab_kospi, tab_kosdaq = st.tabs(["🇰🇷 KOSPI", "🇰🇷 KOSDAQ"])
+    main_tab1, main_tab2 = st.tabs(["📊 시장순위", "🏆 52주 신고가"])
 
-    for tab, market in [(tab_kospi, "KOSPI"), (tab_kosdaq, "KOSDAQ")]:
-        with tab:
-            cache_key = f"universe_{market}"
-            if cache_key not in st.session_state:
-                with st.spinner(f"{market} 종목 로딩..."):
-                    listing = _fdr.StockListing(market)
-                    # 필요 컬럼만 추출
-                    df = listing[["Code", "Name", "Close", "Changes", "ChagesRatio", "Volume", "Marcap"]].copy()
-                    df = df.rename(columns={
-                        "Code": "종목코드", "Name": "종목명", "Close": "현재가",
-                        "Changes": "전일대비", "ChagesRatio": "등락률(%)",
-                        "Volume": "거래량", "Marcap": "시가총액",
-                    })
-                    df = df.dropna(subset=["종목명", "현재가"])
-                    df["현재가"] = df["현재가"].astype(int)
-                    df["시가총액(억)"] = (df["시가총액"] / 1e8).astype(int)
-                    df = df.drop(columns=["시가총액"])
-                    st.session_state[cache_key] = df
+    # ── 시장순위 ──
+    with main_tab1:
+        tab_kospi, tab_kosdaq = st.tabs(["🇰🇷 KOSPI", "🇰🇷 KOSDAQ"])
+        for tab, market in [(tab_kospi, "KOSPI"), (tab_kosdaq, "KOSDAQ")]:
+            with tab:
+                df = _load_listing(market)
 
-            df = st.session_state[cache_key]
+                _sort_opts = ["시가총액(억) 내림차순", "등락률(%) 내림차순", "거래량 내림차순"]
+                _sort_sel = st.selectbox("정렬 기준", _sort_opts, key=f"univ_sort_{market}")
 
-            # 정렬 기준
-            _sort_opts = ["시가총액(억) 내림차순", "등락률(%) 내림차순", "거래량 내림차순"]
-            _sort_sel = st.selectbox("정렬 기준", _sort_opts, key=f"univ_sort_{market}")
+                if "시가총액" in _sort_sel:
+                    df_sorted = df.sort_values("시가총액(억)", ascending=False)
+                elif "등락률" in _sort_sel:
+                    df_sorted = df.sort_values("등락률(%)", ascending=False)
+                elif "거래량" in _sort_sel:
+                    df_sorted = df.sort_values("거래량", ascending=False)
+                else:
+                    df_sorted = df
 
-            if "시가총액" in _sort_sel:
-                df_sorted = df.sort_values("시가총액(억)", ascending=False)
-            elif "등락률" in _sort_sel:
-                df_sorted = df.sort_values("등락률(%)", ascending=False)
-            elif "거래량" in _sort_sel:
-                df_sorted = df.sort_values("거래량", ascending=False)
-            else:
-                df_sorted = df
+                _show_n = st.slider("표시 종목 수", 50, 500, 100, 50, key=f"univ_n_{market}")
+                df_show = df_sorted.head(_show_n).reset_index(drop=True)
+                st.caption(f"{market} 전체 {len(df)}종목 중 상위 {_show_n}개")
 
-            # 상위 N개 표시
-            _show_n = st.slider("표시 종목 수", 50, 500, 100, 50, key=f"univ_n_{market}")
-            df_show = df_sorted.head(_show_n).reset_index(drop=True)
+                _color_map = {"등락률(%)": "red_positive", "전일대비": "red_positive"}
+                result = _aggrid(df_show, key=f"univ_tbl_{market}_{_sort_sel}_{_show_n}",
+                                 height=min(600, 40 + len(df_show) * 30),
+                                 click_nav=True, color_map=_color_map,
+                                 price_cols=["현재가", "전일대비", "거래량", "시가총액(억)"])
+                _univ_click_handler(result)
 
-            st.caption(f"{market} 전체 {len(df)}종목 중 상위 {_show_n}개")
+    # ── 52주 신고가 ──
+    with main_tab2:
+        tab_h_kospi, tab_h_kosdaq = st.tabs(["🇰🇷 KOSPI", "🇰🇷 KOSDAQ"])
+        for tab, market in [(tab_h_kospi, "KOSPI"), (tab_h_kosdaq, "KOSDAQ")]:
+            with tab:
+                df = _load_listing(market)
+                _high_key = f"universe_52h_{market}"
+                if _high_key not in st.session_state:
+                    with st.spinner(f"{market} 52주 신고가 계산 중..."):
+                        import FinanceDataReader as _fdr
+                        from concurrent.futures import ThreadPoolExecutor
 
-            _color_map = {"등락률(%)": "red_positive", "전일대비": "red_positive"}
-            result = _aggrid(df_show, key=f"univ_tbl_{market}_{_sort_sel}_{_show_n}",
-                             height=min(600, 40 + len(df_show) * 30),
-                             click_nav=True, color_map=_color_map,
-                             price_cols=["현재가", "전일대비", "거래량", "시가총액(억)"])
+                        def _check_52w_high(row):
+                            try:
+                                ticker = row["종목코드"]
+                                hdf = _fdr.DataReader(ticker, (datetime.now() - timedelta(days=370)).strftime("%Y-%m-%d"))
+                                if hdf is None or hdf.empty or len(hdf) < 20:
+                                    return None
+                                high_52w = float(hdf["High"].max())
+                                cur = float(hdf["Close"].iloc[-1])
+                                pct_from_high = round((cur / high_52w - 1) * 100, 2)
+                                if pct_from_high >= -5:  # 신고가 5% 이내
+                                    return {
+                                        "종목코드": ticker,
+                                        "종목명": row["종목명"],
+                                        "현재가": int(cur),
+                                        "52주고가": int(high_52w),
+                                        "고가대비(%)": pct_from_high,
+                                        "등락률(%)": row["등락률(%)"],
+                                        "시가총액(억)": row["시가총액(억)"],
+                                    }
+                            except:
+                                pass
+                            return None
 
-            selected = result["selected_rows"]
-            if selected is not None and len(selected) > 0:
-                import pandas as _pd
-                row = selected.iloc[0] if isinstance(selected, _pd.DataFrame) else selected[0]
-                ticker = row.get("종목코드", "") if isinstance(row, dict) else row.get("종목코드", "")
-                if ticker:
-                    st.session_state.view = "chart"
-                    st.session_state.chart_ticker = ticker
-                    st.session_state.chart_name = row.get("종목명", "") if isinstance(row, dict) else row.get("종목명", "")
-                    st.session_state.chart_period = 60
-                    st.session_state.sidebar_ticker = ticker
-                    st.session_state.return_to_view = "universe"
-                    st.rerun()
+                        rows = [row for _, row in df.iterrows()]
+                        with ThreadPoolExecutor(max_workers=16) as pool:
+                            results = list(pool.map(_check_52w_high, rows))
+                        hits = [r for r in results if r is not None]
+                        st.session_state[_high_key] = pd.DataFrame(hits) if hits else pd.DataFrame()
+
+                df_high = st.session_state[_high_key]
+                if df_high.empty:
+                    st.info("52주 신고가 근접 종목이 없습니다.")
+                else:
+                    df_high = df_high.sort_values("고가대비(%)", ascending=False).reset_index(drop=True)
+                    st.caption(f"{market} 52주 고가 대비 -5% 이내: {len(df_high)}종목")
+
+                    _h_color = {"고가대비(%)": "red_positive", "등락률(%)": "red_positive"}
+                    h_result = _aggrid(df_high, key=f"univ_52h_{market}",
+                                       height=min(600, 40 + len(df_high) * 30),
+                                       click_nav=True, color_map=_h_color,
+                                       price_cols=["현재가", "52주고가", "시가총액(억)"])
+                    _univ_click_handler(h_result)
 
 
 def show_pattern_scanner():
