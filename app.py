@@ -2125,7 +2125,7 @@ def show_universe():
                                 high_52w = float(hdf["High"].max())
                                 cur = float(hdf["Close"].iloc[-1])
                                 pct_from_high = round((cur / high_52w - 1) * 100, 2)
-                                if pct_from_high >= -5:  # 신고가 5% 이내
+                                if pct_from_high >= -10:  # 신고가 10% 이내
                                     return {
                                         "종목코드": ticker,
                                         "종목명": row["종목명"],
@@ -2149,15 +2149,32 @@ def show_universe():
                 if df_high.empty:
                     st.info("52주 신고가 근접 종목이 없습니다.")
                 else:
-                    df_high = df_high.sort_values("고가대비(%)", ascending=False).reset_index(drop=True)
-                    st.caption(f"{market} 52주 고가 대비 -5% 이내: {len(df_high)}종목")
-
                     _h_color = {"고가대비(%)": "red_positive", "등락률(%)": "red_positive"}
-                    h_result = _aggrid(df_high, key=f"univ_52h_{market}",
-                                       height=min(600, 40 + len(df_high) * 30),
-                                       click_nav=True, color_map=_h_color,
-                                       price_cols=["현재가", "52주고가", "시가총액(억)"])
-                    _univ_click_handler(h_result)
+                    _h_price = ["현재가", "52주고가", "시가총액(억)"]
+
+                    # 신고가 돌파 (고가대비 >= 0%)
+                    df_breakout = df_high[df_high["고가대비(%)"] >= 0].sort_values("고가대비(%)", ascending=False).reset_index(drop=True)
+                    st.markdown(f"**🔥 신고가 돌파 ({len(df_breakout)})**")
+                    if df_breakout.empty:
+                        st.info("신고가 돌파 종목이 없습니다.")
+                    else:
+                        r1 = _aggrid(df_breakout, key=f"univ_52h_bo_{market}",
+                                     height=min(400, 40 + len(df_breakout) * 30),
+                                     click_nav=True, color_map=_h_color, price_cols=_h_price)
+                        _univ_click_handler(r1)
+
+                    st.divider()
+
+                    # 신고가 근접 (-10% ~ 0%)
+                    df_near = df_high[(df_high["고가대비(%)"] < 0) & (df_high["고가대비(%)"] >= -10)].sort_values("고가대비(%)", ascending=False).reset_index(drop=True)
+                    st.markdown(f"**📍 신고가 근접 -10% 이내 ({len(df_near)})**")
+                    if df_near.empty:
+                        st.info("신고가 근접 종목이 없습니다.")
+                    else:
+                        r2 = _aggrid(df_near, key=f"univ_52h_near_{market}",
+                                     height=min(600, 40 + len(df_near) * 30),
+                                     click_nav=True, color_map=_h_color, price_cols=_h_price)
+                        _univ_click_handler(r2)
 
 
 def show_pattern_scanner():
