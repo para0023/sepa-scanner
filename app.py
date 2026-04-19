@@ -290,7 +290,7 @@ with st.sidebar:
         st.session_state.view = "short_scanner"
         st.rerun()
 
-    if st.button("📋 전종목", use_container_width=True):
+    if st.button("📋 기타순위목록", use_container_width=True):
         st.session_state.view = "universe"
         st.rerun()
 
