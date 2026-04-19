@@ -2082,7 +2082,7 @@ def show_universe():
             result = _aggrid(df_show, key=f"univ_tbl_{market}_{_sort_sel}_{_show_n}",
                              height=min(600, 40 + len(df_show) * 30),
                              click_nav=True, color_map=_color_map,
-                             price_cols=["현재가"])
+                             price_cols=["현재가", "거래량", "시가총액(억)"])
 
             selected = result["selected_rows"]
             if selected is not None and len(selected) > 0:
