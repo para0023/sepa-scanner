@@ -1017,6 +1017,83 @@ def get_short_cache_info(period: int = 60) -> Optional[str]:
     return get_filter_cache_info("short", "SHORT", period)
 
 
+# ─────────────────────────────────────────────
+# 52주 신고가 스캐너
+# ─────────────────────────────────────────────
+
+def scan_52w_high(market: str = "KOSPI", use_cache: bool = True, progress_cb=None) -> pd.DataFrame:
+    """52주 신고가 돌파/근접 종목 스캔 (고가 대비 -10% 이내)"""
+    cache_type = "52w_high"
+    period = 0  # period 미사용이지만 캐시 함수 호환용
+    if use_cache:
+        cached = _load_filter_cache(cache_type, market, period)
+        if cached is not None:
+            return cached
+
+    listing = fdr.StockListing(market)
+    total = len(listing)
+    results = []
+    done = 0
+
+    def _check_one(row):
+        try:
+            ticker = str(row["Code"])
+            name = str(row["Name"])
+            cur_price = float(row["Close"]) if "Close" in row and row["Close"] else 0
+            marcap = float(row["Marcap"]) if "Marcap" in row and row["Marcap"] else 0
+            chg_ratio = float(row["ChagesRatio"]) if "ChagesRatio" in row else 0
+
+            if cur_price <= 0:
+                return None
+
+            end = datetime.now()
+            start = end - timedelta(days=370)
+            df = fdr.DataReader(ticker, start.strftime("%Y-%m-%d"))
+            if df is None or df.empty or len(df) < 20:
+                return None
+            df = df[~df.index.duplicated(keep='last')]
+            high_52w = float(df["High"].max())
+            if high_52w <= 0:
+                return None
+            pct = round((cur_price / high_52w - 1) * 100, 2)
+            if pct >= -10:
+                return {
+                    "종목코드": ticker,
+                    "종목명": name,
+                    "현재가": int(cur_price),
+                    "52주고가": int(high_52w),
+                    "고가대비(%)": pct,
+                    "등락률(%)": round(chg_ratio, 2),
+                    "시가총액(억)": int(marcap / 1e8) if marcap else 0,
+                }
+        except:
+            pass
+        return None
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        future_map = {executor.submit(_check_one, row): idx for idx, (_, row) in enumerate(listing.iterrows())}
+        for future in future_map:
+            r = future.result()
+            if r:
+                results.append(r)
+            done += 1
+            if progress_cb and done % 50 == 0:
+                progress_cb(done, total)
+
+    df_result = pd.DataFrame(results) if results else pd.DataFrame()
+    if not df_result.empty:
+        df_result = df_result.sort_values("고가대비(%)", ascending=False).reset_index(drop=True)
+        _save_filter_cache(df_result, cache_type, market, period)
+
+    print(f"[52주 신고가] {market}: {len(df_result)}건")
+    return df_result
+
+
+def get_52w_high_cache_info(market: str) -> Optional[str]:
+    """52주 신고가 캐시 저장 시각 반환"""
+    return get_filter_cache_info("52w_high", market, 0)
+
+
 def calc_market_ranking(
     market: str = "KOSPI",
     period: int = 20,

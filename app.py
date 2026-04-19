@@ -28,7 +28,7 @@ from relative_strength import (
     build_chart_echarts,
     calc_entry_signal,
 )
-from market_ranking import calc_market_ranking, get_cache_info, _cache_path, refresh_52w_high, apply_vcp_filter, apply_stage2_filter, get_filter_cache_info, scan_vcp_patterns, get_vcp_pattern_cache_info, scan_short_candidates, get_short_cache_info, INVERSE_ETF_MAP
+from market_ranking import calc_market_ranking, get_cache_info, _cache_path, refresh_52w_high, apply_vcp_filter, apply_stage2_filter, get_filter_cache_info, scan_vcp_patterns, get_vcp_pattern_cache_info, scan_short_candidates, get_short_cache_info, scan_52w_high, get_52w_high_cache_info, INVERSE_ETF_MAP
 from backtest import run_intraday_reversal_backtest, get_backtest_cache_info, run_signal_backtest, get_signal_cache_info
 from portfolio import add_buy, add_sell, get_open_positions, get_trade_log, calculate_performance, update_stop_loss, get_stop_loss_history, get_realized_pnl, get_position_pnl, get_total_capital, set_initial_capital, add_capital_flow, get_capital_flows, delete_capital_flow, delete_trade, update_trade, get_equity_curve, get_monthly_performance, get_trades_by_ticker, set_portfolio_file, update_take_profit, get_monthly_review
 from watchlist import (load_watchlists, save_watchlists, add_group, delete_group,
@@ -2109,43 +2109,33 @@ def show_universe():
         tab_h_kospi, tab_h_kosdaq = st.tabs(["🇰🇷 KOSPI", "🇰🇷 KOSDAQ"])
         for tab, market in [(tab_h_kospi, "KOSPI"), (tab_h_kosdaq, "KOSDAQ")]:
             with tab:
-                df = _load_listing(market)
                 _high_key = f"universe_52h_{market}"
+                _high_cache_time = get_52w_high_cache_info(market)
+
                 if _high_key not in st.session_state:
-                    with st.spinner(f"{market} 52주 신고가 계산 중..."):
-                        import FinanceDataReader as _fdr
-                        from concurrent.futures import ThreadPoolExecutor
-
-                        def _check_52w_high(row):
-                            try:
-                                ticker = row["종목코드"]
-                                hdf = _fdr.DataReader(ticker, (datetime.now() - timedelta(days=370)).strftime("%Y-%m-%d"))
-                                if hdf is None or hdf.empty or len(hdf) < 20:
-                                    return None
-                                high_52w = float(hdf["High"].max())
-                                cur = float(hdf["Close"].iloc[-1])
-                                pct_from_high = round((cur / high_52w - 1) * 100, 2)
-                                if pct_from_high >= -10:  # 신고가 10% 이내
-                                    return {
-                                        "종목코드": ticker,
-                                        "종목명": row["종목명"],
-                                        "현재가": int(cur),
-                                        "52주고가": int(high_52w),
-                                        "고가대비(%)": pct_from_high,
-                                        "등락률(%)": row["등락률(%)"],
-                                        "시가총액(억)": row["시가총액(억)"],
-                                    }
-                            except:
-                                pass
-                            return None
-
-                        rows = [row for _, row in df.iterrows()]
-                        with ThreadPoolExecutor(max_workers=16) as pool:
-                            results = list(pool.map(_check_52w_high, rows))
-                        hits = [r for r in results if r is not None]
-                        st.session_state[_high_key] = pd.DataFrame(hits) if hits else pd.DataFrame()
+                    if _high_cache_time:
+                        df_high = scan_52w_high(market=market, use_cache=True)
+                        st.session_state[_high_key] = df_high
+                    else:
+                        st.info(f"{market} 52주 신고가 캐시가 없습니다.")
+                        if st.button(f"🚀 {market} 52주 신고가 스캔 시작", key=f"52h_btn_{market}"):
+                            status = st.empty()
+                            bar = st.progress(0)
+                            status.info(f"⏳ {market} 52주 신고가 스캔 중...")
+                            def _cb(done, total):
+                                pct = int(done / total * 100)
+                                bar.progress(pct)
+                                status.info(f"⏳ {market} 스캔 중... {done}/{total} ({pct}%)")
+                            df_high = scan_52w_high(market=market, use_cache=False, progress_cb=_cb)
+                            st.session_state[_high_key] = df_high
+                            bar.empty()
+                            status.empty()
+                            st.rerun()
+                        continue
 
                 df_high = st.session_state[_high_key]
+                _t = _high_cache_time or "방금 계산"
+                st.caption(f"캐시: {_t}")
                 if df_high.empty:
                     st.info("52주 신고가 근접 종목이 없습니다.")
                 else:
