@@ -2578,14 +2578,14 @@ def _show_portfolio_us():
     with tab_hold:
         df_pos = get_open_positions()
 
-        if st.button("🔄 현재가 조회", key="us_price_refresh"):
+        prices = st.session_state.get("portfolio_prices_us", {})
+        _auto_load = not prices and not df_pos.empty
+        if _auto_load or st.button("🔄 현재가 갱신", key="us_price_refresh"):
             prices = {}
             with st.spinner("현재가 조회 중..."):
                 for _, row in df_pos.iterrows():
                     prices[row["종목코드"]] = _fetch_current_price(row["종목코드"])
             st.session_state["portfolio_prices_us"] = prices
-
-        prices = st.session_state.get("portfolio_prices_us", {})
 
         if df_pos.empty:
             st.info("보유 중인 종목이 없습니다.")
@@ -3420,15 +3420,15 @@ def show_portfolio():
     with tab_hold:
         df_pos = get_open_positions()
 
-        # 현재가 조회 버튼
-        if st.button("🔄 현재가 조회"):
+        # 현재가 자동 조회 (캐시 없으면 자동, 버튼으로 갱신)
+        prices = st.session_state.get("portfolio_prices", {})
+        _auto_load = not prices and not df_pos.empty
+        if _auto_load or st.button("🔄 현재가 갱신", key="kr_price_refresh"):
             prices = {}
             with st.spinner("현재가 조회 중..."):
                 for _, row in df_pos.iterrows():
                     prices[row["종목코드"]] = _fetch_current_price(row["종목코드"])
             st.session_state["portfolio_prices"] = prices
-
-        prices = st.session_state.get("portfolio_prices", {})
 
         if df_pos.empty:
             st.info("보유 중인 종목이 없습니다.")
