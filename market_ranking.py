@@ -543,6 +543,12 @@ def _detect_vcp_single(
         close  = df["Close"]
         volume = df["Volume"] if "Volume" in df.columns else None
 
+        # 일평균 거래액 필터 (20일 평균 10억 미만 제외)
+        if volume is not None and len(close) >= 20:
+            _avg_trade_val = (close.iloc[-20:] * volume.iloc[-20:]).mean()
+            if _avg_trade_val < 1_000_000_000:  # 10억
+                return None
+
         # 거래량 수축 체크 (빠른 사전 필터)
         if volume is None or len(volume) < vol_period:
             return None
