@@ -290,6 +290,10 @@ with st.sidebar:
         st.session_state.view = "short_scanner"
         st.rerun()
 
+    if st.button("📋 전종목", use_container_width=True):
+        st.session_state.view = "universe"
+        st.rerun()
+
     if st.button("💼 포트폴리오", use_container_width=True):
         st.session_state.view = "portfolio"
         st.rerun()
@@ -319,6 +323,7 @@ with st.sidebar:
         return_to = st.session_state.get("return_to_view", "rs_scanner")
         _back_labels = {
             "dashboard": "← Main으로",
+            "universe": "← 전종목으로",
             "rs_scanner": "← RS Scanner로",
             "pattern_scanner": "← SEPA Scanner로",
             "short_scanner": "← Short Scanner로",
@@ -2022,6 +2027,76 @@ def _show_vcp_table(market: str, auto_calc: bool = True):
         st.session_state.return_to_view = "pattern_scanner"
         st.session_state["ps_return_tab"] = "us" if _is_us else "kr"
         st.rerun()
+
+
+def show_universe():
+    """전종목 유니버스 — 시가총액순/영업이익성장률순"""
+    import FinanceDataReader as _fdr
+
+    st.title("📋 전종목 유니버스")
+    st.caption("시장별 전종목 리스트 · 행 클릭 시 차트로 이동")
+
+    tab_kospi, tab_kosdaq = st.tabs(["🇰🇷 KOSPI", "🇰🇷 KOSDAQ"])
+
+    for tab, market in [(tab_kospi, "KOSPI"), (tab_kosdaq, "KOSDAQ")]:
+        with tab:
+            cache_key = f"universe_{market}"
+            if cache_key not in st.session_state:
+                with st.spinner(f"{market} 종목 로딩..."):
+                    listing = _fdr.StockListing(market)
+                    # 필요 컬럼만 추출
+                    df = listing[["Code", "Name", "Close", "Changes", "ChagesRatio", "Volume", "Marcap"]].copy()
+                    df = df.rename(columns={
+                        "Code": "종목코드", "Name": "종목명", "Close": "현재가",
+                        "Changes": "전일대비", "ChagesRatio": "등락률(%)",
+                        "Volume": "거래량", "Marcap": "시가총액",
+                    })
+                    df = df.dropna(subset=["종목명", "현재가"])
+                    df["현재가"] = df["현재가"].astype(int)
+                    df["시가총액(억)"] = (df["시가총액"] / 1e8).astype(int)
+                    df = df.drop(columns=["시가총액"])
+                    st.session_state[cache_key] = df
+
+            df = st.session_state[cache_key]
+
+            # 정렬 기준
+            _sort_opts = ["시가총액(억) 내림차순", "등락률(%) 내림차순", "거래량 내림차순"]
+            _sort_sel = st.selectbox("정렬 기준", _sort_opts, key=f"univ_sort_{market}")
+
+            if "시가총액" in _sort_sel:
+                df_sorted = df.sort_values("시가총액(억)", ascending=False)
+            elif "등락률" in _sort_sel:
+                df_sorted = df.sort_values("등락률(%)", ascending=False)
+            elif "거래량" in _sort_sel:
+                df_sorted = df.sort_values("거래량", ascending=False)
+            else:
+                df_sorted = df
+
+            # 상위 N개 표시
+            _show_n = st.slider("표시 종목 수", 50, 500, 100, 50, key=f"univ_n_{market}")
+            df_show = df_sorted.head(_show_n).reset_index(drop=True)
+
+            st.caption(f"{market} 전체 {len(df)}종목 중 상위 {_show_n}개")
+
+            _color_map = {"등락률(%)": "red_positive", "전일대비": "red_positive"}
+            result = _aggrid(df_show, key=f"univ_tbl_{market}_{_sort_sel}_{_show_n}",
+                             height=min(600, 40 + len(df_show) * 30),
+                             click_nav=True, color_map=_color_map,
+                             price_cols=["현재가"])
+
+            selected = result["selected_rows"]
+            if selected is not None and len(selected) > 0:
+                import pandas as _pd
+                row = selected.iloc[0] if isinstance(selected, _pd.DataFrame) else selected[0]
+                ticker = row.get("종목코드", "") if isinstance(row, dict) else row.get("종목코드", "")
+                if ticker:
+                    st.session_state.view = "chart"
+                    st.session_state.chart_ticker = ticker
+                    st.session_state.chart_name = row.get("종목명", "") if isinstance(row, dict) else row.get("종목명", "")
+                    st.session_state.chart_period = 60
+                    st.session_state.sidebar_ticker = ticker
+                    st.session_state.return_to_view = "universe"
+                    st.rerun()
 
 
 def show_pattern_scanner():
@@ -4743,6 +4818,9 @@ elif st.session_state.view == "chart" and st.session_state.chart_ticker:
 
 elif st.session_state.view == "backtest":
     show_backtest()
+
+elif st.session_state.view == "universe":
+    show_universe()
 
 elif st.session_state.view == "pattern_scanner":
     show_pattern_scanner()
