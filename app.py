@@ -2033,7 +2033,7 @@ def show_universe():
     """전종목 유니버스 — 시가총액순/영업이익성장률순"""
     import FinanceDataReader as _fdr
 
-    st.title("📋 전종목 유니버스")
+    st.title("📋 전종목 List")
     st.caption("시장별 전종목 리스트 · 행 클릭 시 차트로 이동")
 
     tab_kospi, tab_kosdaq = st.tabs(["🇰🇷 KOSPI", "🇰🇷 KOSDAQ"])
