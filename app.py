@@ -1015,51 +1015,6 @@ def show_ranking_table(market: str, rank_period: int, auto_calc: bool = True):
                 st.session_state[_vcp_force_key] = True
                 st.rerun()
 
-    # ── 2단계 필터 ──────────────────────────────────────────
-    if has_high:
-        st.markdown("### 📈 2단계 시작 필터")
-        s2_file_time = get_filter_cache_info("stage2", market, rank_period)
-        _s2_force_key = f"_force_s2_{market}_{rank_period}"
-        _s2_force = st.session_state.pop(_s2_force_key, False) or st.session_state.get("_force_rs_all", False)
-
-        if _s2_force:
-            with st.spinner("2단계 재계산 중..."):
-                st.session_state[s2_cache_key] = apply_stage2_filter(df, market=market, period=rank_period, use_cache=False)
-
-        if s2_cache_key not in st.session_state:
-            if s2_file_time:
-                with st.spinner("2단계 캐시 로드 중..."):
-                    st.session_state[s2_cache_key] = apply_stage2_filter(df, market=market, period=rank_period)
-                st.rerun()
-            else:
-                if st.button("🔍 2단계 조건 계산", key=f"s2_btn_{market}_{rank_period}"):
-                    with st.spinner("2단계 조건 확인 중... (상위 100종목)"):
-                        st.session_state[s2_cache_key] = apply_stage2_filter(df, market=market, period=rank_period)
-                    st.rerun()
-                st.caption("버튼을 클릭하면 상위 100종목의 2단계 시작 조건을 계산합니다. (하루 1회 캐시 저장)")
-
-        if s2_cache_key in st.session_state:
-            df_s2           = st.session_state[s2_cache_key]
-            df_s2_low_base  = df_s2[(df_s2["고가대비(%)"] <= -20) & (df_s2["고가대비(%)"] >= -40)]
-            df_s2_high_base = df_s2[(df_s2["고가대비(%)"] >  -20) & (df_s2["고가대비(%)"] <   -5)]
-            df_s2_bo        = df_s2[df_s2["고가대비(%)"] >= -5]
-            st.markdown(f"**전체 2단계 후보 ({len(df_s2)})**")
-            _render_filter_table(df_s2, f"tbl_{market}_{rank_period}_s2_all", tab_idx=0)
-            st.divider()
-            st.markdown(f"**낮은 베이스 -20%~-40% ({len(df_s2_low_base)})**")
-            _render_filter_table(df_s2_low_base, f"tbl_{market}_{rank_period}_s2_low_base", tab_idx=0)
-            st.divider()
-            st.markdown(f"**높은 베이스 -5%~-20% ({len(df_s2_high_base)})**")
-            _render_filter_table(df_s2_high_base, f"tbl_{market}_{rank_period}_s2_high_base", tab_idx=0)
-            st.divider()
-            st.markdown(f"**신고가 -5% 이내 ({len(df_s2_bo)})**")
-            _render_filter_table(df_s2_bo, f"tbl_{market}_{rank_period}_s2_bo", tab_idx=0)
-            t = s2_file_time or "세션 계산"
-            st.caption(f"종가 > MA20 > MA60  ·  MA20 기울기 양수  ·  MA60 기울기 ≥ 0  ·  캐시: {t}")
-            if st.button("🔄 재계산", key=f"s2_recalc_{market}_{rank_period}"):
-                st.session_state[_s2_force_key] = True
-                st.rerun()
-
     cache_time = get_cache_info(market, rank_period)
     st.caption(
         f"📅 저장: {cache_time or '방금 계산'}  ·  기간: {rank_period}일  ·  행 클릭 시 차트로 이동"
