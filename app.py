@@ -323,7 +323,7 @@ with st.sidebar:
         return_to = st.session_state.get("return_to_view", "rs_scanner")
         _back_labels = {
             "dashboard": "← Main으로",
-            "universe": "← 전종목으로",
+            "universe": "← 기타순위목록으로",
             "rs_scanner": "← RS Scanner로",
             "pattern_scanner": "← SEPA Scanner로",
             "short_scanner": "← Short Scanner로",
@@ -2030,11 +2030,11 @@ def _show_vcp_table(market: str, auto_calc: bool = True):
 
 
 def show_universe():
-    """전종목 유니버스 — 시가총액순/영업이익성장률순"""
+    """기타순위목록 — 시가총액순/등락률순/거래량순"""
     import FinanceDataReader as _fdr
 
-    st.title("📋 전종목 List")
-    st.caption("시장별 전종목 리스트 · 행 클릭 시 차트로 이동")
+    st.title("📋 기타순위목록")
+    st.caption("시장별 순위 리스트 · 행 클릭 시 차트로 이동")
 
     tab_kospi, tab_kosdaq = st.tabs(["🇰🇷 KOSPI", "🇰🇷 KOSDAQ"])
 
