@@ -142,7 +142,8 @@ def run_alert():
     kr_market_open = 9 <= hour < 16  # 09:00~15:30 (여유 있게 16시까지)
     us_market_open = hour >= 23 or hour < 7  # 23:30~06:00 (KST)
 
-    is_regular = (hour == 10 or hour == 14) and minute < 10  # 오전 10시, 오후 2시
+    is_regular_kr = (hour == 10 or hour == 14) and minute < 10  # 한국장: 오전 10시, 오후 2시
+    is_regular_us = (hour == 0 or hour == 5) and minute < 10   # 미국장: 자정 12시, 새벽 5시
 
     all_alerts = []
     state = _load_state()
@@ -210,8 +211,9 @@ def run_alert():
                 _alerted_today.append(r["ticker"])
         state[f"_alerted_{market}_{now.strftime('%Y%m%d')}"] = _alerted_today
 
-        # ── 정기 알림 (오전 10시, 오후 2시) ──
-        if is_regular:
+        # ── 정기 알림 (한국 10시/14시, 미국 0시/5시) ──
+        _is_regular = is_regular_kr if market == "KR" else is_regular_us
+        if _is_regular:
             lines = [f"⏰ {label} 보유현황 ({now.strftime('%H:%M')})"]
             lines.append("─" * 25)
             total_buy = 0
