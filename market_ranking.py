@@ -560,11 +560,13 @@ def _detect_vcp_single(
             return None
         vol_ratio = round(vol_recent / vol_ma * 100, 1)
 
-        # 가격 변동폭 체크: 최근 vol_days일 전일 대비 하락 ≤ -5%, 상승 ≤ +7%
-        if len(close) >= vol_days + 1:
-            recent_close = close.iloc[-(vol_days + 1):]
-            daily_chg = recent_close.pct_change().dropna() * 100
-            if (daily_chg < -max_daily_drop).any() or (daily_chg > max_daily_rise).any():
+        # 가격 변동폭 체크: 최근 vol_days일 고저폭(고가-저가)/전일종가 기준
+        if "High" in df.columns and "Low" in df.columns and len(close) >= vol_days + 1:
+            _recent_high = df["High"].iloc[-vol_days:]
+            _recent_low = df["Low"].iloc[-vol_days:]
+            _prev_closes = close.iloc[-(vol_days + 1):-1].values
+            _hl_pct = (_recent_high.values - _recent_low.values) / _prev_closes * 100
+            if (_hl_pct > max_daily_rise).any():
                 return None
 
         # ── 2단계 조건 (스탠 와인스타인 기준) ──────────────
