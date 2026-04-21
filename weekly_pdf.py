@@ -125,13 +125,16 @@ def generate_weekly_pdf(weekly_data: dict, chart_images: dict = None, market_dat
 
     # 진입/청산/진입+청산 공통 렌더
     def _render_trades(title, trades, show_buys=True, show_sells=True):
+        # 카테고리 제목 + 첫 종목이 같은 페이지에 나오도록
+        _remaining = pdf.h - pdf.get_y() - pdf.b_margin
+        if _remaining < 150:
+            pdf.add_page()
         pdf.sub_title(f"{title} ({len(trades)}건)")
         if not trades:
             pdf.body_text("없음")
             return
         for t in trades:
             # 종목 제목 + 거래 정보 + 차트가 같은 페이지에 나오도록
-            # 차트 높이 약 100mm + 거래 정보 약 30mm = 130mm 필요
             _remaining = pdf.h - pdf.get_y() - pdf.b_margin
             if _remaining < 140:
                 pdf.add_page()
