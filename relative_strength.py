@@ -1610,7 +1610,7 @@ def build_trade_chart_image(
         benchmark_code = "^GSPC"
         benchmark_name = "S&P500"
 
-    # 데이터 수집
+    # 데이터 수집 (거래일까지만)
     stock_df, index_df = fetch_data(ticker, benchmark_code, period)
     stock_name = ""
     try:
@@ -1624,6 +1624,13 @@ def build_trade_chart_image(
             stock_name = ticker
     except:
         stock_name = ticker
+
+    # 거래일까지만 데이터 자르기
+    _trade_dt = pd.to_datetime(trade_date)
+    stock_df = stock_df[stock_df.index <= _trade_dt]
+    index_df = index_df[index_df.index <= _trade_dt]
+    if stock_df.empty:
+        return b""
 
     stock_full, index_full = align_data(stock_df, index_df)
     mas_full = calculate_mas(stock_full["Close"])

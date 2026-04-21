@@ -3408,13 +3408,18 @@ def _show_portfolio_us():
                     st.info("해당 주에 청산 거래가 없습니다.")
 
                 st.divider()
-                def _show_trade_chart_us(ticker, label_key):
-                    _img_key = f"trade_img_us_{ticker}_{_sel_week}_{label_key}"
+                def _show_trade_chart_us(ticker, label_key, trade_info):
+                    # 해당 종목의 가장 마지막 거래일
+                    _dates = [b["날짜"] for b in trade_info.get("매수", [])] + [s["날짜"] for s in trade_info.get("매도", [])]
+                    _last_date = max(_dates) if _dates else _sel_week
+                    _img_key = f"trade_img_us_{ticker}_{_last_date}_{label_key}"
                     if _img_key not in st.session_state:
                         try:
-                            st.session_state[_img_key] = build_trade_chart_image(ticker, _sel_week, period=180)
-                        except:
+                            with st.spinner(f"{ticker} 차트 생성 중..."):
+                                st.session_state[_img_key] = build_trade_chart_image(ticker, _last_date, period=180)
+                        except Exception as _e:
                             st.session_state[_img_key] = b""
+                            st.warning(f"차트 생성 실패: {_e}")
                     if st.session_state[_img_key]:
                         st.image(st.session_state[_img_key], use_container_width=True)
 
@@ -3424,7 +3429,7 @@ def _show_portfolio_us():
                         with st.expander(f"{e['종목명']} ({e['종목코드']})"):
                             for b in e["매수"]:
                                 st.write(f"📅 {b['날짜']} | 💰 ${b['가격']:,.2f} × {b['수량']}주 | 근거: {b['진입근거'] or '-'}")
-                            _show_trade_chart_us(e["종목코드"], "entry")
+                            _show_trade_chart_us(e["종목코드"], "entry", e)
                 else:
                     st.caption("해당 주 진입 없음")
 
@@ -3435,7 +3440,7 @@ def _show_portfolio_us():
                         with st.expander(f"{e['종목명']} ({e['종목코드']})"):
                             for s in e["매도"]:
                                 st.write(f"📅 {s['날짜']} | 💰 ${s['가격']:,.2f} × {s['수량']}주 | 사유: {s['사유'] or '-'}")
-                            _show_trade_chart_us(e["종목코드"], "exit")
+                            _show_trade_chart_us(e["종목코드"], "exit", e)
                 else:
                     st.caption("해당 주 청산 없음")
 
@@ -3450,7 +3455,7 @@ def _show_portfolio_us():
                             st.markdown("**매도**")
                             for s in e["매도"]:
                                 st.write(f"📅 {s['날짜']} | 💰 ${s['가격']:,.2f} × {s['수량']}주 | 사유: {s['사유'] or '-'}")
-                            _show_trade_chart_us(e["종목코드"], "both")
+                            _show_trade_chart_us(e["종목코드"], "both", e)
                 else:
                     st.caption("해당 주 진입+청산 없음")
 
@@ -4346,13 +4351,15 @@ def show_portfolio():
                 st.divider()
 
                 # 진입
-                def _show_trade_chart(ticker, label_key):
-                    """거래 차트 이미지 표시 (캐시)"""
-                    _img_key = f"trade_img_{ticker}_{_sel_week}_{label_key}"
+                def _show_trade_chart(ticker, label_key, trade_info):
+                    """거래 차트 이미지 표시 (캐시) — 거래일 기준"""
+                    _dates = [b["날짜"] for b in trade_info.get("매수", [])] + [s["날짜"] for s in trade_info.get("매도", [])]
+                    _last_date = max(_dates) if _dates else _sel_week
+                    _img_key = f"trade_img_{ticker}_{_last_date}_{label_key}"
                     if _img_key not in st.session_state:
                         try:
                             with st.spinner(f"{ticker} 차트 생성 중..."):
-                                st.session_state[_img_key] = build_trade_chart_image(ticker, _sel_week, period=180)
+                                st.session_state[_img_key] = build_trade_chart_image(ticker, _last_date, period=180)
                         except Exception as _e:
                             st.session_state[_img_key] = b""
                             st.warning(f"차트 생성 실패: {_e}")
@@ -4365,7 +4372,7 @@ def show_portfolio():
                         with st.expander(f"{e['종목명']} ({e['종목코드']})"):
                             for b in e["매수"]:
                                 st.write(f"📅 {b['날짜']} | 💰 {b['가격']:,.0f}원 × {b['수량']}주 | 근거: {b['진입근거'] or '-'} | 손절가: {b['손절가']:,.0f}원" if b['손절가'] else f"📅 {b['날짜']} | 💰 {b['가격']:,.0f}원 × {b['수량']}주 | 근거: {b['진입근거'] or '-'}")
-                            _show_trade_chart(e["종목코드"], "entry")
+                            _show_trade_chart(e["종목코드"], "entry", e)
                 else:
                     st.caption("해당 주 진입 없음")
 
@@ -4377,7 +4384,7 @@ def show_portfolio():
                         with st.expander(f"{e['종목명']} ({e['종목코드']})"):
                             for s in e["매도"]:
                                 st.write(f"📅 {s['날짜']} | 💰 {s['가격']:,.0f}원 × {s['수량']}주 | 사유: {s['사유'] or '-'}")
-                            _show_trade_chart(e["종목코드"], "exit")
+                            _show_trade_chart(e["종목코드"], "exit", e)
                 else:
                     st.caption("해당 주 청산 없음")
 
@@ -4393,7 +4400,7 @@ def show_portfolio():
                             st.markdown("**매도**")
                             for s in e["매도"]:
                                 st.write(f"📅 {s['날짜']} | 💰 {s['가격']:,.0f}원 × {s['수량']}주 | 사유: {s['사유'] or '-'}")
-                            _show_trade_chart(e["종목코드"], "both")
+                            _show_trade_chart(e["종목코드"], "both", e)
                 else:
                     st.caption("해당 주 진입+청산 없음")
 
