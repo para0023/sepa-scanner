@@ -3429,7 +3429,7 @@ def show_portfolio():
         return
 
     set_portfolio_file("portfolio.json")
-    tab_hold, tab_pnl, tab_perf, tab_weekly, tab_review, tab_log = st.tabs(["📋 보유 현황", "📊 거래별 성과분석", "📊 종목별 성과분석", "📊 주간 리뷰", "📅 월별 리뷰", "📜 거래 이력"])
+    tab_hold, tab_pnl, tab_perf, tab_weekly, tab_review, tab_balance, tab_log = st.tabs(["📋 보유 현황", "📊 거래별 성과분석", "📊 종목별 성과분석", "📊 주간 리뷰", "📅 월별 리뷰", "💰 잔액관리", "📜 거래 이력"])
 
     # ── 보유 현황 ─────────────────────────────
     with tab_hold:
@@ -3785,36 +3785,6 @@ def show_portfolio():
                     st.info("이력이 없습니다.")
                 else:
                     _aggrid(df_hist, key="stop_loss_history", height=250, click_nav=False)
-
-        # ── 원금 입출금 관리 ──
-        with st.expander("⚙️ 원금 입출금 관리", expanded=(get_total_capital() == 0)):
-            c1, c2, c3 = st.columns(3)
-            flow_date   = c1.date_input("날짜", value=datetime.now().date(), key="flow_date")
-            flow_type   = c2.selectbox("구분", ["입금", "출금"], key="flow_type")
-            flow_amount = c3.number_input("금액 (원)", min_value=0, step=1000000, key="flow_amount")
-            flow_note   = st.text_input("메모", key="flow_note", placeholder="예: 초기 원금 / 추가 투자 / 일부 인출")
-            if st.button("✅ 저장", key="flow_save"):
-                if flow_amount <= 0:
-                    st.error("금액을 입력해주세요.")
-                else:
-                    signed = float(flow_amount) if flow_type == "입금" else -float(flow_amount)
-                    add_capital_flow(flow_date.strftime("%Y-%m-%d"), signed, flow_note)
-                    st.success("저장 완료!")
-                    st.rerun()
-
-            df_flows = get_capital_flows()
-            if not df_flows.empty:
-                st.caption(f"현재 원금 합계: **{get_total_capital():,.0f}원**")
-                for _, row in df_flows.iterrows():
-                    col_a, col_b, col_c, col_d = st.columns([2, 3, 3, 1])
-                    col_a.write(row.get("날짜", ""))
-                    amount = row.get("금액(원)", 0)
-                    col_b.write(f"{amount:+,.0f}원")
-                    col_c.write(row.get("메모", ""))
-                    flow_id = row.get("id", "")
-                    if flow_id and col_d.button("🗑️", key=f"del_flow_{flow_id}"):
-                        delete_capital_flow(flow_id)
-                        st.rerun()
 
     # ── 거래별 성과분석 ────────────────────────
     with tab_pnl:
@@ -4359,6 +4329,71 @@ def show_portfolio():
                 )
             else:
                 st.info(f"{_sel_month}에 실현 거래가 없습니다.")
+
+    # ── 잔액관리 ─────────────────────────────
+    with tab_balance:
+        st.subheader("원금 입출금 관리")
+        c1, c2, c3 = st.columns(3)
+        flow_date   = c1.date_input("날짜", value=datetime.now().date(), key="flow_date")
+        flow_type   = c2.selectbox("구분", ["입금", "출금"], key="flow_type")
+        flow_amount = c3.number_input("금액 (원)", min_value=0, step=1000000, key="flow_amount")
+        flow_note   = st.text_input("메모", key="flow_note", placeholder="예: 초기 원금 / 추가 투자 / 일부 인출")
+        if st.button("✅ 저장", key="flow_save"):
+            if flow_amount <= 0:
+                st.error("금액을 입력해주세요.")
+            else:
+                signed = float(flow_amount) if flow_type == "입금" else -float(flow_amount)
+                add_capital_flow(flow_date.strftime("%Y-%m-%d"), signed, flow_note)
+                st.success("저장 완료!")
+                st.rerun()
+
+        df_flows = get_capital_flows()
+        if not df_flows.empty:
+            st.caption(f"현재 원금 합계: **{get_total_capital():,.0f}원**")
+            for _, row in df_flows.iterrows():
+                col_a, col_b, col_c, col_d = st.columns([2, 3, 3, 1])
+                col_a.write(row.get("날짜", ""))
+                amount = row.get("금액(원)", 0)
+                col_b.write(f"{amount:+,.0f}원")
+                col_c.write(row.get("메모", ""))
+                flow_id = row.get("id", "")
+                if flow_id and col_d.button("🗑️", key=f"del_flow_{flow_id}"):
+                    delete_capital_flow(flow_id)
+                    st.rerun()
+
+        st.divider()
+
+        # 비용 차이 조정
+        st.subheader("실잔액 조정")
+        st.caption("월말 실제 증권사 잔액과 시스템 추정치의 차이를 조정합니다.")
+
+        _sys_capital = get_total_capital()
+        _pnl_df = get_realized_pnl()
+        _pnl_cols = [c for c in _pnl_df.columns if "비용차감손익" in c]
+        _cum_pnl = _pnl_df[_pnl_cols[0]].sum() if _pnl_cols and not _pnl_df.empty else 0
+        _sys_estimate = _sys_capital + _cum_pnl
+        st.metric("시스템 추정 잔액 (현금)", f"{_sys_estimate:,.0f}원",
+                  help="원금 + 누적 비용차감손익 (보유종목 평가 미포함)")
+
+        _adj_col1, _adj_col2 = st.columns(2)
+        _actual_balance = _adj_col1.number_input("실제 잔액 (원)", min_value=0, step=100000, key="actual_balance")
+        _adj_date = _adj_col2.date_input("조정 날짜", value=datetime.now().date(), key="adj_date")
+
+        if st.button("🔄 차이 조정", key="adj_save"):
+            if _actual_balance <= 0:
+                st.error("실제 잔액을 입력해주세요.")
+            else:
+                _diff = _actual_balance - _sys_estimate
+                if abs(_diff) < 1:
+                    st.info("차이가 없습니다.")
+                else:
+                    add_capital_flow(
+                        _adj_date.strftime("%Y-%m-%d"),
+                        _diff,
+                        f"잔액조정 (실잔액 {_actual_balance:,.0f} - 추정 {_sys_estimate:,.0f} = {_diff:+,.0f})"
+                    )
+                    st.success(f"조정 완료: {_diff:+,.0f}원")
+                    st.rerun()
 
     # ── 거래 이력 ─────────────────────────────
     with tab_log:
