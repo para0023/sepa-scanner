@@ -917,6 +917,7 @@ def build_chart_echarts(
     trades: list = None,
     stop_loss_price: float = None,
     take_profit_price: float = None,
+    return_option: bool = False,
 ):
     """
     Apache ECharts 기반 5패널 차트 (단일 차트 인스턴스 → x축 완벽 정렬).
@@ -924,8 +925,9 @@ def build_chart_echarts(
     Row 2: 주가+MA (52%)  |  Row 3: 거래량 (12%)  |  Row 4: RS Line (22%)
     + dataZoom 하단 슬라이더 (8%)
     """
-    from streamlit_echarts import st_echarts
-    import streamlit as st
+    if not return_option:
+        from streamlit_echarts import st_echarts
+        import streamlit as st
 
     is_kr = (market == "KR")
 
@@ -1540,11 +1542,125 @@ def build_chart_echarts(
     # ════════════════════════════════════════════
     # 렌더링
     # ════════════════════════════════════════════
+    if return_option:
+        return option
     st_echarts(options=option, height="1100px", key=f"ec2_{ticker}_{period}")
 
 
 # ─────────────────────────────────────────────
-# 6. 메인
+# 6. ECharts → 이미지 변환
+# ─────────────────────────────────────────────
+
+def echarts_to_image(option: dict, width: int = 1200, height: int = 900) -> bytes:
+    """ECharts option을 PNG 이미지 bytes로 변환 (selenium headless)"""
+    import json as _json
+    import time as _time
+    from pathlib import Path as _Path
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.chrome.service import Service
+    from webdriver_manager.chrome import ChromeDriverManager
+
+    html = f"""<!DOCTYPE html>
+<html><head>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+</head><body style="margin:0;padding:0;background:#1a1a2e;">
+<div id="chart" style="width:{width}px;height:{height}px;"></div>
+<script>
+var chart = echarts.init(document.getElementById('chart'));
+chart.setOption({_json.dumps(option, ensure_ascii=False)});
+</script>
+</body></html>"""
+
+    tmp_html = _Path("/tmp/_echarts_render.html")
+    tmp_html.write_text(html, encoding="utf-8")
+
+    opts = Options()
+    opts.add_argument("--headless=new")
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-gpu")
+    opts.add_argument(f"--window-size={width+20},{height+20}")
+
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=opts)
+    try:
+        driver.get(f"file://{tmp_html}")
+        _time.sleep(1.5)  # ECharts 렌더링 대기
+        img_bytes = driver.find_element("id", "chart").screenshot_as_png
+    finally:
+        driver.quit()
+        tmp_html.unlink(missing_ok=True)
+
+    return img_bytes
+
+
+def build_trade_chart_image(
+    ticker: str,
+    trade_date: str,
+    period: int = 60,
+) -> bytes:
+    """거래 시점 차트를 이미지로 생성 — ECharts 동일 스타일"""
+    from portfolio import get_trades_by_ticker
+
+    # 시장 판별
+    market = "KR" if ticker.isdigit() else "US"
+    if market == "KR":
+        benchmark_code = "KS11"
+        benchmark_name = "KOSPI"
+    else:
+        benchmark_code = "^GSPC"
+        benchmark_name = "S&P500"
+
+    # 데이터 수집
+    stock_df, index_df = fetch_data(ticker, benchmark_code, period)
+    stock_name = ""
+    try:
+        import FinanceDataReader as _fdr
+        if market == "KR":
+            _listing = _fdr.StockListing("KRX")
+            _match = _listing[_listing["Code"] == ticker]
+            if not _match.empty:
+                stock_name = _match.iloc[0]["Name"]
+        else:
+            stock_name = ticker
+    except:
+        stock_name = ticker
+
+    stock_full, index_full = align_data(stock_df, index_df)
+    mas_full = calculate_mas(stock_full["Close"])
+    s_trim, i_trim, _ = trim_to_period(stock_full, index_full, mas_full, period)
+
+    if len(s_trim) < 4:
+        return b""
+
+    rs_line_trim, rs_score, stock_ret, index_ret = calculate_ibd_rs(s_trim, i_trim)
+    rs_line_full, _, _, _ = calculate_ibd_rs(stock_full, index_full)
+    trim_start = s_trim.index[0]
+    if trim_start in rs_line_full.index:
+        anchor = rs_line_full[trim_start]
+    else:
+        pos = rs_line_full.index.searchsorted(trim_start)
+        anchor = rs_line_full.iloc[min(pos, len(rs_line_full) - 1)]
+    rs_line_display = rs_line_full / anchor * 100
+
+    trades = get_trades_by_ticker(ticker) or None
+
+    # ECharts option 생성 (렌더링 없이)
+    option = build_chart_echarts(
+        ticker, stock_name, benchmark_name, market, period,
+        stock_full, index_full, mas_full,
+        rs_line_display, rs_score, stock_ret, index_ret,
+        trades=trades,
+        return_option=True,
+    )
+
+    if not option:
+        return b""
+
+    return echarts_to_image(option, width=1200, height=900)
+
+
+# ─────────────────────────────────────────────
+# 7. 메인
 # ─────────────────────────────────────────────
 
 def main():
