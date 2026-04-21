@@ -4161,7 +4161,11 @@ def show_portfolio():
             _sel_week = st.selectbox("주간 선택", _weeks, index=0,
                                      format_func=lambda w: f"{w} ~ {(pd.to_datetime(w) + pd.Timedelta(days=4)).strftime('%Y-%m-%d')}",
                                      key="kr_weekly_sel")
-            _wr = get_weekly_review(_sel_week)
+            _wr_key = f"weekly_review_kr_{_sel_week}"
+            if _wr_key not in st.session_state:
+                with st.spinner("주간 리뷰 데이터 조회 중..."):
+                    st.session_state[_wr_key] = get_weekly_review(_sel_week)
+            _wr = st.session_state[_wr_key]
 
             if _wr:
                 # 1. 포트폴리오 현황 요약
