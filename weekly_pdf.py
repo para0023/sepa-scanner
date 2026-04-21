@@ -7,13 +7,13 @@ from pathlib import Path
 from fpdf import FPDF
 
 
-FONT_PATH = "/System/Library/Fonts/Supplemental/AppleGothic.ttf"
+FONT_PATH = str(Path(__file__).parent / "fonts" / "NotoSansCJKkr-Regular.otf")
 
 
 class WeeklyReportPDF(FPDF):
     def __init__(self):
         super().__init__()
-        self.add_font("korean", "", FONT_PATH, uni=True)
+        self.add_font("korean", "", FONT_PATH)
         self.set_auto_page_break(auto=True, margin=15)
 
     def header(self):
