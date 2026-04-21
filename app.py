@@ -32,6 +32,7 @@ from market_ranking import calc_market_ranking, get_cache_info, _cache_path, ref
 from backtest import run_intraday_reversal_backtest, get_backtest_cache_info, run_signal_backtest, get_signal_cache_info
 from portfolio import add_buy, add_sell, get_open_positions, get_trade_log, calculate_performance, update_stop_loss, get_stop_loss_history, get_realized_pnl, get_position_pnl, get_total_capital, set_initial_capital, add_capital_flow, get_capital_flows, delete_capital_flow, delete_trade, update_trade, get_equity_curve, get_monthly_performance, get_trades_by_ticker, set_portfolio_file, update_take_profit, get_monthly_review, get_available_weeks, get_weekly_review
 from relative_strength import build_trade_chart_image
+from trading_journal import get_journal_dates, get_journal, save_journal, delete_journal
 from watchlist import (load_watchlists, save_watchlists, add_group, delete_group,
                        add_ticker, remove_ticker, calc_group_rs,
                        calc_group_index, build_group_chart,
@@ -3593,7 +3594,7 @@ def show_portfolio():
         return
 
     set_portfolio_file("portfolio.json")
-    tab_hold, tab_pnl, tab_perf, tab_weekly, tab_review, tab_balance, tab_log = st.tabs(["📋 보유 현황", "📊 거래별 성과분석", "📊 종목별 성과분석", "📊 주간 리뷰", "📅 월별 리뷰", "💰 잔액관리", "📜 거래 이력"])
+    tab_hold, tab_pnl, tab_perf, tab_weekly, tab_review, tab_journal, tab_balance, tab_log = st.tabs(["📋 보유 현황", "📊 거래별 성과분석", "📊 종목별 성과분석", "📊 주간 리뷰", "📅 월별 리뷰", "📝 매매 일지", "💰 잔액관리", "📜 거래 이력"])
 
     # ── 보유 현황 ─────────────────────────────
     with tab_hold:
@@ -4551,6 +4552,93 @@ def show_portfolio():
                 )
             else:
                 st.info(f"{_sel_month}에 실현 거래가 없습니다.")
+
+    # ── 매매 일지 ─────────────────────────────
+    with tab_journal:
+        _jn_mode = st.radio("모드", ["✏️ 작성", "📖 조회"], horizontal=True, key="jn_mode", label_visibility="collapsed")
+
+        if _jn_mode == "✏️ 작성":
+            _jn_date = st.date_input("날짜", value=datetime.now().date(), key="jn_date")
+            _jn_date_str = _jn_date.strftime("%Y-%m-%d")
+
+            # 기존 일지 불러오기
+            _existing = get_journal(_jn_date_str)
+            _existing_entries = {e["종목코드"]: e.get("메모", "") for e in _existing.get("entries", [])}
+            _existing_extra = _existing.get("extra_notes", "")
+
+            # 보유종목 자동 로드
+            set_portfolio_file("portfolio.json")
+            _jn_kr = get_open_positions()
+            set_portfolio_file("portfolio_us.json")
+            _jn_us = get_open_positions()
+            set_portfolio_file("portfolio.json")
+
+            _jn_entries = []
+
+            if not _jn_kr.empty:
+                st.markdown("**🇰🇷 한국 보유종목**")
+                for _, _r in _jn_kr.iterrows():
+                    _tk = _r["종목코드"]
+                    _nm = _r["종목명"]
+                    _avg = _r["평균매수가"]
+                    _default = _existing_entries.get(_tk, "")
+                    st.markdown(f"**{_nm}** ({_tk}) | 매수가: {_avg:,.0f}원")
+                    _memo = st.text_area(f"{_nm} 메모", value=_default, key=f"jn_{_tk}", height=80,
+                                         placeholder="현재 상태 분석 + 오늘 행동 계획")
+                    _jn_entries.append({"종목코드": _tk, "종목명": _nm, "시장": "KR", "메모": _memo})
+                    st.divider()
+
+            if not _jn_us.empty:
+                st.markdown("**🇺🇸 미국 보유종목**")
+                for _, _r in _jn_us.iterrows():
+                    _tk = _r["종목코드"]
+                    _nm = _r["종목명"]
+                    _avg = _r["평균매수가"]
+                    _default = _existing_entries.get(_tk, "")
+                    st.markdown(f"**{_nm}** ({_tk}) | 매수가: ${_avg:,.2f}")
+                    _memo = st.text_area(f"{_nm} 메모", value=_default, key=f"jn_{_tk}", height=80,
+                                         placeholder="현재 상태 분석 + 오늘 행동 계획")
+                    _jn_entries.append({"종목코드": _tk, "종목명": _nm, "시장": "US", "메모": _memo})
+                    st.divider()
+
+            st.markdown("**📌 추가 메모** (관심종목, 시장 메모 등)")
+            _extra = st.text_area("추가 메모", value=_existing_extra, key="jn_extra", height=120,
+                                   placeholder="신규 관심종목, 시장 동향, 기타 메모")
+
+            if st.button("💾 일지 저장", key="jn_save", type="primary"):
+                # 메모가 있는 항목만 저장
+                _to_save = [e for e in _jn_entries if e["메모"].strip()]
+                save_journal(_jn_date_str, _to_save, _extra.strip())
+                st.success(f"{_jn_date_str} 일지 저장 완료!")
+                st.rerun()
+
+        else:  # 조회 모드
+            _jn_dates = get_journal_dates()
+            if not _jn_dates:
+                st.info("작성된 일지가 없습니다.")
+            else:
+                _sel_jn_date = st.selectbox("날짜 선택", _jn_dates, key="jn_view_date")
+                _jn = get_journal(_sel_jn_date)
+
+                if _jn:
+                    st.markdown(f"### 📝 {_sel_jn_date} 매매 일지")
+                    st.caption(f"저장: {_jn.get('saved_at', '')[:16]}")
+
+                    for e in _jn.get("entries", []):
+                        _mkt = "🇰🇷" if e.get("시장") == "KR" else "🇺🇸"
+                        st.markdown(f"**{_mkt} {e['종목명']}** ({e['종목코드']})")
+                        st.text(e.get("메모", ""))
+                        st.divider()
+
+                    _extra = _jn.get("extra_notes", "")
+                    if _extra:
+                        st.markdown("**📌 추가 메모**")
+                        st.text(_extra)
+
+                    if st.button("🗑️ 이 일지 삭제", key=f"jn_del_{_sel_jn_date}"):
+                        delete_journal(_sel_jn_date)
+                        st.success("삭제 완료!")
+                        st.rerun()
 
     # ── 잔액관리 ─────────────────────────────
     with tab_balance:
