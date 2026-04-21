@@ -4371,9 +4371,23 @@ def show_portfolio():
         _pnl_df = get_realized_pnl()
         _pnl_cols = [c for c in _pnl_df.columns if "비용차감손익" in c]
         _cum_pnl = _pnl_df[_pnl_cols[0]].sum() if _pnl_cols and not _pnl_df.empty else 0
-        _sys_estimate = _sys_capital + _cum_pnl
-        st.metric("시스템 추정 잔액 (현금)", f"{_sys_estimate:,.0f}원",
-                  help="원금 + 누적 비용차감손익 (보유종목 평가 미포함)")
+        _sys_cash = _sys_capital + _cum_pnl
+
+        # 보유종목 미실현손익
+        _bal_pos = get_open_positions()
+        _bal_unrealized = 0
+        if not _bal_pos.empty:
+            _bal_prices = st.session_state.get("portfolio_prices", {})
+            for _, _r in _bal_pos.iterrows():
+                _cp = _bal_prices.get(_r["종목코드"], 0)
+                if _cp > 0:
+                    _bal_unrealized += (_cp - _r["평균매수가"]) * _r["수량"]
+        _sys_total = _sys_cash + _bal_unrealized
+
+        _bc1, _bc2 = st.columns(2)
+        _bc1.metric("현금 잔액", f"{_sys_cash:,.0f}원", help="원금 + 누적 비용차감손익")
+        _bc2.metric("총자산 (평가 포함)", f"{_sys_total:,.0f}원",
+                    f"미실현손익 {_bal_unrealized:+,.0f}원")
 
         _adj_col1, _adj_col2 = st.columns(2)
         _actual_balance = _adj_col1.number_input("실제 잔액 (원)", min_value=0, step=100000, key="actual_balance")
