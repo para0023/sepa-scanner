@@ -116,7 +116,9 @@ def generate_weekly_pdf(weekly_data: dict, chart_images: dict = None, market_dat
         pdf.kv_row("승률", f"{summary['승률(%)']:.1f}%")
         pdf.kv_row("승리 평균수익률", fmt_pct(summary["승리평균수익률(%)"]))
         pdf.kv_row("패배 평균손실률", fmt_pct(summary["패배평균손실률(%)"]))
-        pdf.kv_row("주간 실현수익", fmt_price(summary["주간실현수익"]))
+        _w_capital = weekly_data.get("capital", 0)
+        _w_realized_ret = round(summary["주간실현수익"] / _w_capital * 100, 2) if _w_capital > 0 else 0
+        pdf.kv_row("주간 실현수익", f"{fmt_price(summary['주간실현수익'])} ({fmt_pct(_w_realized_ret)})")
         pdf.ln(3)
     else:
         pdf.body_text("해당 주 청산 거래 없음")

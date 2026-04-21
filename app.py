@@ -3402,7 +3402,8 @@ def _show_portfolio_us():
                     _sc4, _sc5, _sc6 = st.columns(3)
                     _sc4.metric("승리 평균수익률", f"{_s['승리평균수익률(%)']:+.2f}%")
                     _sc5.metric("패배 평균손실률", f"{_s['패배평균손실률(%)']:+.2f}%")
-                    _sc6.metric("주간실현수익", f"${_s['주간실현수익']:+,.2f}")
+                    _us_w_ret = round(_s['주간실현수익'] / _wr['capital'] * 100, 2) if _wr['capital'] > 0 else 0
+                    _sc6.metric("주간실현수익", f"${_s['주간실현수익']:+,.2f}", f"{_us_w_ret:+.2f}%")
                 else:
                     st.info("해당 주에 청산 거래가 없습니다.")
 
@@ -4337,7 +4338,8 @@ def show_portfolio():
                     _sc4, _sc5, _sc6 = st.columns(3)
                     _sc4.metric("승리 평균수익률", f"{_s['승리평균수익률(%)']:+.2f}%")
                     _sc5.metric("패배 평균손실률", f"{_s['패배평균손실률(%)']:+.2f}%")
-                    _sc6.metric("주간실현수익", f"{_s['주간실현수익']:+,.0f}원")
+                    _kr_w_ret = round(_s['주간실현수익'] / _wr['capital'] * 100, 2) if _wr['capital'] > 0 else 0
+                    _sc6.metric("주간실현수익", f"{_s['주간실현수익']:+,.0f}원", f"{_kr_w_ret:+.2f}%")
                 else:
                     st.info("해당 주에 청산 거래가 없습니다.")
 
