@@ -2585,8 +2585,8 @@ def _render_return_distribution(df, label: str, prefix: str):
 
 def _show_portfolio_us():
     """미국 포트폴리오 UI (달러 기준)"""
-    tab_hold, tab_pnl, tab_perf, tab_review, tab_log = st.tabs(
-        ["📋 보유 현황", "📊 거래별 성과분석", "📊 종목별 성과분석", "📅 월별 리뷰", "📜 거래 이력"]
+    tab_hold, tab_pnl, tab_perf, tab_weekly, tab_review, tab_balance, tab_log = st.tabs(
+        ["📋 보유 현황", "📊 거래별 성과분석", "📊 종목별 성과분석", "📊 주간 리뷰", "📅 월별 리뷰", "💰 잔액관리", "📜 거래 이력"]
     )
 
     # ── 보유 현황 ─────────────────────────────
@@ -2925,36 +2925,6 @@ def _show_portfolio_us():
                     st.info("손절가 변경 이력이 없습니다.")
                 else:
                     _aggrid(df_sl_hist, key="us_sl_hist_table", height=250, click_nav=False)
-
-        # ── 원금 입출금 관리 ──
-        with st.expander("⚙️ 원금 입출금 관리", expanded=(get_total_capital() == 0)):
-            c1, c2, c3 = st.columns(3)
-            flow_date   = c1.date_input("날짜", value=datetime.now().date(), key="us_flow_date")
-            flow_type   = c2.selectbox("구분", ["입금", "출금"], key="us_flow_type")
-            flow_amount = c3.number_input("금액 ($)", min_value=0.0, step=100.0, format="%.2f", key="us_flow_amount")
-            flow_note   = st.text_input("메모", key="us_flow_note", placeholder="예: 초기 원금 / 추가 투자 / 일부 인출")
-            if st.button("✅ 저장", key="us_flow_save"):
-                if flow_amount <= 0:
-                    st.error("금액을 입력해주세요.")
-                else:
-                    signed = float(flow_amount) if flow_type == "입금" else -float(flow_amount)
-                    add_capital_flow(flow_date.strftime("%Y-%m-%d"), signed, flow_note)
-                    st.success("저장 완료!")
-                    st.rerun()
-
-            df_flows = get_capital_flows()
-            if not df_flows.empty:
-                st.caption(f"현재 원금 합계: **${get_total_capital():,.2f}**")
-                for _, row in df_flows.iterrows():
-                    col_a, col_b, col_c, col_d = st.columns([2, 3, 3, 1])
-                    col_a.write(row.get("날짜", ""))
-                    amount = row.get("금액(원)", 0)
-                    col_b.write(f"${amount:+,.2f}")
-                    col_c.write(row.get("메모", ""))
-                    flow_id = row.get("id", "")
-                    if flow_id and col_d.button("🗑️", key=f"us_del_flow_{flow_id}"):
-                        delete_capital_flow(flow_id)
-                        st.rerun()
 
     # ── 거래별 성과분석 ─────────────────────────────
     with tab_pnl:
@@ -3391,6 +3361,180 @@ def _show_portfolio_us():
                 )
             else:
                 st.info(f"{_us_sel_month}에 실현 거래가 없습니다.")
+
+    # ── 주간 리뷰 ─────────────────────────────
+    with tab_weekly:
+        _weeks = get_available_weeks()
+        if not _weeks:
+            st.info("거래 내역이 없습니다.")
+        else:
+            _sel_week = st.selectbox("주간 선택", _weeks, index=0,
+                                     format_func=lambda w: f"{w} ~ {(pd.to_datetime(w) + pd.Timedelta(days=4)).strftime('%Y-%m-%d')}",
+                                     key="us_weekly_sel")
+            _wr_key = f"weekly_review_us_{_sel_week}"
+            if _wr_key not in st.session_state:
+                with st.spinner("주간 리뷰 데이터 조회 중..."):
+                    st.session_state[_wr_key] = get_weekly_review(_sel_week)
+            _wr = st.session_state[_wr_key]
+
+            if _wr:
+                st.subheader("1. 포트폴리오 현황 요약")
+                _c1, _c2, _c3 = st.columns(3)
+                _ws_val = _wr["week_start_val"]
+                _we_val = _wr["week_end_val"]
+                _w_ret = _wr["weekly_return_pct"]
+                _weekly_pnl = _wr["summary"]["주간실현수익"] if _wr["summary"] else 0
+
+                _c1.metric("주초 평가", f"${_ws_val:,.2f}")
+                _c2.metric("주말 평가", f"${_we_val:,.2f}", f"${_we_val - _ws_val:+,.2f}")
+                _c3.metric("주간 수익률", f"{_w_ret:+.2f}%")
+
+                st.divider()
+                st.subheader("2. 거래현황")
+
+                if _wr["summary"]:
+                    _s = _wr["summary"]
+                    _sc1, _sc2, _sc3 = st.columns(3)
+                    _sc1.metric("총거래수", f"{_s['총거래수']}건")
+                    _sc2.metric("승/패", f"{_s['승']}승 {_s['패']}패")
+                    _sc3.metric("승률", f"{_s['승률(%)']:.1f}%")
+                    _sc4, _sc5, _sc6 = st.columns(3)
+                    _sc4.metric("승리 평균수익률", f"{_s['승리평균수익률(%)']:+.2f}%")
+                    _sc5.metric("패배 평균손실률", f"{_s['패배평균손실률(%)']:+.2f}%")
+                    _sc6.metric("주간실현수익", f"${_s['주간실현수익']:+,.2f}")
+                else:
+                    st.info("해당 주에 청산 거래가 없습니다.")
+
+                st.divider()
+                st.markdown(f"**📥 진입 ({len(_wr['entries'])}건)**")
+                if _wr["entries"]:
+                    for e in _wr["entries"]:
+                        with st.expander(f"{e['종목명']} ({e['종목코드']})"):
+                            for b in e["매수"]:
+                                st.write(f"📅 {b['날짜']} | 💰 ${b['가격']:,.2f} × {b['수량']}주 | 근거: {b['진입근거'] or '-'}")
+                else:
+                    st.caption("해당 주 진입 없음")
+
+                st.divider()
+                st.markdown(f"**📤 청산 ({len(_wr['exits'])}건)**")
+                if _wr["exits"]:
+                    for e in _wr["exits"]:
+                        with st.expander(f"{e['종목명']} ({e['종목코드']})"):
+                            for s in e["매도"]:
+                                st.write(f"📅 {s['날짜']} | 💰 ${s['가격']:,.2f} × {s['수량']}주 | 사유: {s['사유'] or '-'}")
+                else:
+                    st.caption("해당 주 청산 없음")
+
+                st.divider()
+                st.markdown(f"**🔄 진입+청산 ({len(_wr['both'])}건)**")
+                if _wr["both"]:
+                    for e in _wr["both"]:
+                        with st.expander(f"{e['종목명']} ({e['종목코드']})"):
+                            st.markdown("**매수**")
+                            for b in e["매수"]:
+                                st.write(f"📅 {b['날짜']} | 💰 ${b['가격']:,.2f} × {b['수량']}주 | 근거: {b['진입근거'] or '-'}")
+                            st.markdown("**매도**")
+                            for s in e["매도"]:
+                                st.write(f"📅 {s['날짜']} | 💰 ${s['가격']:,.2f} × {s['수량']}주 | 사유: {s['사유'] or '-'}")
+                else:
+                    st.caption("해당 주 진입+청산 없음")
+
+                st.divider()
+                st.subheader("3. 시장 지표 요약")
+                try:
+                    _mkt_items = {"S&P500": "^GSPC", "NASDAQ": "^IXIC", "USD/KRW": "USD/KRW", "WTI": "CL=F"}
+                    _mkt_rows = []
+                    for label, code in _mkt_items.items():
+                        try:
+                            _mdf = fdr.DataReader(code, _wr["week_start"], _wr["week_end"])
+                            if _mdf is not None and len(_mdf) >= 2:
+                                _sv = float(_mdf["Close"].iloc[0])
+                                _ev = float(_mdf["Close"].iloc[-1])
+                                _mkt_rows.append({"지표": label, "시작": round(_sv, 2), "종료": round(_ev, 2), "변동률(%)": round((_ev / _sv - 1) * 100, 2)})
+                        except:
+                            pass
+                    if _mkt_rows:
+                        _mkt_df = pd.DataFrame(_mkt_rows)
+                        _aggrid(_mkt_df, key=f"us_weekly_mkt_{_sel_week}", height=min(200, 40 + len(_mkt_df) * 35),
+                                fit_columns=True, color_map={"변동률(%)": "red_positive"})
+                except Exception as _e:
+                    st.warning(f"시장 데이터 조회 실패: {_e}")
+
+    # ── 잔액관리 ─────────────────────────────
+    with tab_balance:
+        st.subheader("원금 입출금 관리")
+        c1, c2, c3 = st.columns(3)
+        flow_date   = c1.date_input("날짜", value=datetime.now().date(), key="us_flow_date")
+        flow_type   = c2.selectbox("구분", ["입금", "출금"], key="us_flow_type")
+        flow_amount = c3.number_input("금액 ($)", min_value=0.0, step=100.0, format="%.2f", key="us_flow_amount")
+        flow_note   = st.text_input("메모", key="us_flow_note", placeholder="예: 초기 원금 / 추가 투자 / 일부 인출")
+        if st.button("✅ 저장", key="us_flow_save"):
+            if flow_amount <= 0:
+                st.error("금액을 입력해주세요.")
+            else:
+                signed = float(flow_amount) if flow_type == "입금" else -float(flow_amount)
+                add_capital_flow(flow_date.strftime("%Y-%m-%d"), signed, flow_note)
+                st.success("저장 완료!")
+                st.rerun()
+
+        df_flows = get_capital_flows()
+        if not df_flows.empty:
+            st.caption(f"현재 원금 합계: **${get_total_capital():,.2f}**")
+            for _, row in df_flows.iterrows():
+                col_a, col_b, col_c, col_d = st.columns([2, 3, 3, 1])
+                col_a.write(row.get("날짜", ""))
+                amount = row.get("금액(원)", 0)
+                col_b.write(f"${amount:+,.2f}")
+                col_c.write(row.get("메모", ""))
+                flow_id = row.get("id", "")
+                if flow_id and col_d.button("🗑️", key=f"us_del_flow_{flow_id}"):
+                    delete_capital_flow(flow_id)
+                    st.rerun()
+
+        st.divider()
+        st.subheader("실잔액 조정")
+        st.caption("월말 실제 증권사 잔액과 시스템 추정치의 차이를 조정합니다.")
+
+        _sys_capital = get_total_capital()
+        _pnl_df = get_realized_pnl()
+        _pnl_cols = [c for c in _pnl_df.columns if "비용차감손익" in c]
+        _cum_pnl = _pnl_df[_pnl_cols[0]].sum() if _pnl_cols and not _pnl_df.empty else 0
+        _sys_cash = _sys_capital + _cum_pnl
+
+        _bal_pos = get_open_positions()
+        _bal_unrealized = 0
+        if not _bal_pos.empty:
+            _bal_prices = st.session_state.get("portfolio_prices_us", {})
+            for _, _r in _bal_pos.iterrows():
+                _cp = _bal_prices.get(_r["종목코드"], 0)
+                if _cp > 0:
+                    _bal_unrealized += (_cp - _r["평균매수가"]) * _r["수량"]
+        _sys_total = _sys_cash + _bal_unrealized
+
+        _bc1, _bc2 = st.columns(2)
+        _bc1.metric("시스템 추정 총자산", f"${_sys_total:,.2f}",
+                    f"미실현손익 ${_bal_unrealized:+,.2f}")
+        _bc2.metric("현금 잔액", f"${_sys_cash:,.2f}", help="원금 + 누적 비용차감손익")
+
+        _adj_col1, _adj_col2 = st.columns(2)
+        _actual_balance = _adj_col1.number_input("실제 잔액 ($)", min_value=0.0, step=100.0, format="%.2f", key="us_actual_balance")
+        _adj_date = _adj_col2.date_input("조정 날짜", value=datetime.now().date(), key="us_adj_date")
+
+        if st.button("🔄 차이 조정", key="us_adj_save"):
+            if _actual_balance <= 0:
+                st.error("실제 잔액을 입력해주세요.")
+            else:
+                _diff = _actual_balance - _sys_total
+                if abs(_diff) < 0.01:
+                    st.info("차이가 없습니다.")
+                else:
+                    add_capital_flow(
+                        _adj_date.strftime("%Y-%m-%d"),
+                        _diff,
+                        f"잔액조정 (증권사 ${_actual_balance:,.2f} - 추정 ${_sys_total:,.2f} = ${_diff:+,.2f})"
+                    )
+                    st.success(f"조정 완료: ${_diff:+,.2f}")
+                    st.rerun()
 
     # ── 거래 이력 ─────────────────────────────
     with tab_log:
