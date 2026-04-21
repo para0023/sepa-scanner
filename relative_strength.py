@@ -1650,6 +1650,9 @@ def build_trade_chart_image(
     rs_line_display = rs_line_full / anchor * 100
 
     trades = get_trades_by_ticker(ticker) or None
+    # 거래일까지의 거래만 필터 (미래 매매 마커 제거)
+    if trades:
+        trades = [t for t in trades if t["date"] <= trade_date]
 
     # ECharts option 생성 (렌더링 없이)
     option = build_chart_echarts(
