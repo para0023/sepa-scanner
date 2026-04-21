@@ -4349,9 +4349,11 @@ def show_portfolio():
                     _img_key = f"trade_img_{ticker}_{_sel_week}_{label_key}"
                     if _img_key not in st.session_state:
                         try:
-                            st.session_state[_img_key] = build_trade_chart_image(ticker, _sel_week, period=60)
-                        except:
+                            with st.spinner(f"{ticker} 차트 생성 중..."):
+                                st.session_state[_img_key] = build_trade_chart_image(ticker, _sel_week, period=60)
+                        except Exception as _e:
                             st.session_state[_img_key] = b""
+                            st.warning(f"차트 생성 실패: {_e}")
                     if st.session_state[_img_key]:
                         st.image(st.session_state[_img_key], use_container_width=True)
 
