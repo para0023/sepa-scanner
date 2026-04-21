@@ -626,24 +626,15 @@ def get_realized_pnl() -> pd.DataFrame:
         else:
             initial_stop = buys[0].get("stop_loss", 0) if buys else 0
 
-        # FIFO로 매수 큐 구성
-        buy_queue = [[t["price"], t["quantity"]] for t in buys]  # [price, remaining_qty]
-
+        # 가중평균 매수가 (매도 시점까지의 전체 매수 평균)
         for sell in sells:
             sell_qty   = sell["quantity"]
             sell_price = sell["price"]
-            cost       = 0.0
-            remaining  = sell_qty
 
-            for b in buy_queue:
-                if remaining <= 0:
-                    break
-                used = min(b[1], remaining)
-                cost += b[0] * used
-                b[1] -= used
-                remaining -= used
-
-            avg_buy   = cost / sell_qty if sell_qty > 0 else 0
+            # 매도일 이전까지의 모든 매수로 가중평균 계산
+            total_buy_cost = sum(b["price"] * b["quantity"] for b in buys if b["date"] <= sell["date"])
+            total_buy_qty = sum(b["quantity"] for b in buys if b["date"] <= sell["date"])
+            avg_buy = total_buy_cost / total_buy_qty if total_buy_qty > 0 else 0
             pnl_amt   = (sell_price - avg_buy) * sell_qty
             pnl_pct   = (sell_price / avg_buy - 1) * 100 if avg_buy > 0 else 0
             fees      = _calc_fees(avg_buy * sell_qty, sell_price * sell_qty)
