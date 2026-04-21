@@ -1078,3 +1078,127 @@ def get_monthly_review(month: str = None) -> dict:
         "by_reason": by_reason,
         "trades": mdf.reset_index(drop=True),
     }
+
+
+def get_available_weeks() -> list:
+    """거래가 있는 주간 목록 반환 (월요일 날짜 리스트, 내림차순)"""
+    data = _load()
+    dates = set()
+    for pos in data["positions"]:
+        for t in pos["trades"]:
+            dates.add(t["date"])
+    if not dates:
+        return []
+    # 각 날짜의 해당 주 월요일 계산
+    weeks = set()
+    for d in dates:
+        dt = pd.to_datetime(d)
+        monday = dt - pd.Timedelta(days=dt.weekday())
+        weeks.add(monday.strftime("%Y-%m-%d"))
+    return sorted(weeks, reverse=True)
+
+
+def get_weekly_review(week_start: str = None) -> dict:
+    """
+    주간 리뷰 데이터 반환.
+    week_start: "2026-04-14" (월요일). None이면 최근 주.
+    """
+    data = _load()
+    if not data["positions"]:
+        return {}
+
+    # 주간 범위 설정
+    if week_start is None:
+        weeks = get_available_weeks()
+        if not weeks:
+            return {}
+        week_start = weeks[0]
+
+    ws = pd.to_datetime(week_start)
+    we = ws + pd.Timedelta(days=6)  # 일요일
+    ws_str = ws.strftime("%Y-%m-%d")
+    we_str = we.strftime("%Y-%m-%d")
+
+    # 주간 진입/청산 분류
+    entries = []   # 진입만
+    exits = []     # 청산만
+    both = []      # 진입+청산
+
+    for pos in data["positions"]:
+        ticker = pos["ticker"]
+        name = pos["name"]
+
+        week_buys = [t for t in pos["trades"] if t["type"] == "buy" and ws_str <= t["date"] <= we_str]
+        week_sells = [t for t in pos["trades"] if t["type"] == "sell" and ws_str <= t["date"] <= we_str]
+
+        if not week_buys and not week_sells:
+            continue
+
+        entry_info = {
+            "종목코드": ticker,
+            "종목명": name,
+            "매수": [{
+                "날짜": b["date"],
+                "가격": b["price"],
+                "수량": b["quantity"],
+                "진입근거": b.get("entry_reason", ""),
+                "손절가": b.get("stop_loss", 0),
+            } for b in week_buys],
+            "매도": [{
+                "날짜": s["date"],
+                "가격": s["price"],
+                "수량": s["quantity"],
+                "사유": s.get("reason", ""),
+            } for s in week_sells],
+        }
+
+        if week_buys and not week_sells:
+            entries.append(entry_info)
+        elif week_sells and not week_buys:
+            exits.append(entry_info)
+        else:
+            both.append(entry_info)
+
+    # 주간 거래 요약 (청산 건 기준)
+    df_pnl = get_realized_pnl()
+    summary = None
+    weekly_pnl_df = pd.DataFrame()
+    if not df_pnl.empty:
+        df_pnl["_date"] = pd.to_datetime(df_pnl["날짜"])
+        weekly_pnl_df = df_pnl[(df_pnl["_date"] >= ws) & (df_pnl["_date"] <= we)].copy()
+
+        if not weekly_pnl_df.empty:
+            n = len(weekly_pnl_df)
+            wins = weekly_pnl_df[weekly_pnl_df["수익률(%)"] > 0]
+            losses = weekly_pnl_df[weekly_pnl_df["수익률(%)"] <= 0]
+
+            # 실현손익 컬럼명 (원 또는 $)
+            _pnl_col = [c for c in weekly_pnl_df.columns if "비용차감손익" in c]
+            _pnl_col = _pnl_col[0] if _pnl_col else "실현손익(원)"
+            weekly_realized = weekly_pnl_df[_pnl_col].sum() if _pnl_col in weekly_pnl_df.columns else 0
+
+            summary = {
+                "총거래수": n,
+                "승": len(wins),
+                "패": len(losses),
+                "승률(%)": round(len(wins) / n * 100, 1) if n > 0 else 0,
+                "승리평균수익률(%)": round(wins["수익률(%)"].mean(), 2) if len(wins) > 0 else 0,
+                "패배평균손실률(%)": round(losses["수익률(%)"].mean(), 2) if len(losses) > 0 else 0,
+                "주간실현수익": round(weekly_realized),
+            }
+
+    # 포트폴리오 잔액
+    capital = get_total_capital()
+    cum_pnl = df_pnl[[c for c in df_pnl.columns if "비용차감손익" in c][0]].sum() if not df_pnl.empty and any("비용차감손익" in c for c in df_pnl.columns) else 0
+
+    return {
+        "week_start": ws_str,
+        "week_end": we_str,
+        "capital": capital,
+        "cum_pnl": round(cum_pnl),
+        "summary": summary,
+        "entries": entries,
+        "exits": exits,
+        "both": both,
+        "trades_df": weekly_pnl_df,
+    }

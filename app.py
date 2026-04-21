@@ -30,7 +30,7 @@ from relative_strength import (
 )
 from market_ranking import calc_market_ranking, get_cache_info, _cache_path, refresh_52w_high, apply_vcp_filter, apply_stage2_filter, get_filter_cache_info, scan_vcp_patterns, get_vcp_pattern_cache_info, scan_short_candidates, get_short_cache_info, scan_52w_high, get_52w_high_cache_info, INVERSE_ETF_MAP
 from backtest import run_intraday_reversal_backtest, get_backtest_cache_info, run_signal_backtest, get_signal_cache_info
-from portfolio import add_buy, add_sell, get_open_positions, get_trade_log, calculate_performance, update_stop_loss, get_stop_loss_history, get_realized_pnl, get_position_pnl, get_total_capital, set_initial_capital, add_capital_flow, get_capital_flows, delete_capital_flow, delete_trade, update_trade, get_equity_curve, get_monthly_performance, get_trades_by_ticker, set_portfolio_file, update_take_profit, get_monthly_review
+from portfolio import add_buy, add_sell, get_open_positions, get_trade_log, calculate_performance, update_stop_loss, get_stop_loss_history, get_realized_pnl, get_position_pnl, get_total_capital, set_initial_capital, add_capital_flow, get_capital_flows, delete_capital_flow, delete_trade, update_trade, get_equity_curve, get_monthly_performance, get_trades_by_ticker, set_portfolio_file, update_take_profit, get_monthly_review, get_available_weeks, get_weekly_review
 from watchlist import (load_watchlists, save_watchlists, add_group, delete_group,
                        add_ticker, remove_ticker, calc_group_rs,
                        calc_group_index, build_group_chart,
@@ -3414,7 +3414,7 @@ def show_portfolio():
         return
 
     set_portfolio_file("portfolio.json")
-    tab_hold, tab_pnl, tab_perf, tab_review, tab_log = st.tabs(["📋 보유 현황", "📊 거래별 성과분석", "📊 종목별 성과분석", "📅 월별 리뷰", "📜 거래 이력"])
+    tab_hold, tab_pnl, tab_perf, tab_weekly, tab_review, tab_log = st.tabs(["📋 보유 현황", "📊 거래별 성과분석", "📊 종목별 성과분석", "📊 주간 리뷰", "📅 월별 리뷰", "📜 거래 이력"])
 
     # ── 보유 현황 ─────────────────────────────
     with tab_hold:
@@ -4151,6 +4151,119 @@ def show_portfolio():
 
             # 종목별 수익률 분포
             _render_return_distribution(df_pos_pnl, "전체", "kr_pos")
+
+    # ── 주간 리뷰 ─────────────────────────────
+    with tab_weekly:
+        _weeks = get_available_weeks()
+        if not _weeks:
+            st.info("거래 내역이 없습니다.")
+        else:
+            _sel_week = st.selectbox("주간 선택", _weeks, index=0,
+                                     format_func=lambda w: f"{w} ~ {(pd.to_datetime(w) + pd.Timedelta(days=4)).strftime('%Y-%m-%d')}",
+                                     key="kr_weekly_sel")
+            _wr = get_weekly_review(_sel_week)
+
+            if _wr:
+                # 1. 포트폴리오 현황 요약
+                st.subheader("1. 포트폴리오 현황 요약")
+                _c1, _c2, _c3 = st.columns(3)
+                _capital = _wr["capital"]
+                _cum_pnl = _wr["cum_pnl"]
+                _total_asset = _capital + _cum_pnl if _capital > 0 else 0
+                _cum_ret = round(_cum_pnl / _capital * 100, 2) if _capital > 0 else 0
+                _weekly_pnl = _wr["summary"]["주간실현수익"] if _wr["summary"] else 0
+                _weekly_ret = round(_weekly_pnl / _capital * 100, 2) if _capital > 0 else 0
+
+                _c1.metric("잔액", f"{_total_asset:,.0f}원")
+                _c2.metric("누적수익률", f"{_cum_ret:+.2f}%")
+                _c3.metric("주간실현수익", f"{_weekly_pnl:+,.0f}원", f"{_weekly_ret:+.2f}%")
+
+                st.divider()
+
+                # 2. 거래현황
+                st.subheader("2. 거래현황")
+
+                if _wr["summary"]:
+                    _s = _wr["summary"]
+                    _sc1, _sc2, _sc3 = st.columns(3)
+                    _sc1.metric("총거래수", f"{_s['총거래수']}건")
+                    _sc2.metric("승/패", f"{_s['승']}승 {_s['패']}패")
+                    _sc3.metric("승률", f"{_s['승률(%)']:.1f}%")
+                    _sc4, _sc5, _sc6 = st.columns(3)
+                    _sc4.metric("승리 평균수익률", f"{_s['승리평균수익률(%)']:+.2f}%")
+                    _sc5.metric("패배 평균손실률", f"{_s['패배평균손실률(%)']:+.2f}%")
+                    _sc6.metric("주간실현수익", f"{_s['주간실현수익']:+,.0f}원")
+                else:
+                    st.info("해당 주에 청산 거래가 없습니다.")
+
+                st.divider()
+
+                # 진입
+                st.markdown(f"**📥 진입 ({len(_wr['entries'])}건)**")
+                if _wr["entries"]:
+                    for e in _wr["entries"]:
+                        with st.expander(f"{e['종목명']} ({e['종목코드']})"):
+                            for b in e["매수"]:
+                                st.write(f"📅 {b['날짜']} | 💰 {b['가격']:,.0f}원 × {b['수량']}주 | 근거: {b['진입근거'] or '-'} | 손절가: {b['손절가']:,.0f}원" if b['손절가'] else f"📅 {b['날짜']} | 💰 {b['가격']:,.0f}원 × {b['수량']}주 | 근거: {b['진입근거'] or '-'}")
+                else:
+                    st.caption("해당 주 진입 없음")
+
+                st.divider()
+
+                # 청산
+                st.markdown(f"**📤 청산 ({len(_wr['exits'])}건)**")
+                if _wr["exits"]:
+                    for e in _wr["exits"]:
+                        with st.expander(f"{e['종목명']} ({e['종목코드']})"):
+                            for s in e["매도"]:
+                                st.write(f"📅 {s['날짜']} | 💰 {s['가격']:,.0f}원 × {s['수량']}주 | 사유: {s['사유'] or '-'}")
+                else:
+                    st.caption("해당 주 청산 없음")
+
+                st.divider()
+
+                # 진입/청산
+                st.markdown(f"**🔄 진입+청산 ({len(_wr['both'])}건)**")
+                if _wr["both"]:
+                    for e in _wr["both"]:
+                        with st.expander(f"{e['종목명']} ({e['종목코드']})"):
+                            st.markdown("**매수**")
+                            for b in e["매수"]:
+                                st.write(f"📅 {b['날짜']} | 💰 {b['가격']:,.0f}원 × {b['수량']}주 | 근거: {b['진입근거'] or '-'}")
+                            st.markdown("**매도**")
+                            for s in e["매도"]:
+                                st.write(f"📅 {s['날짜']} | 💰 {s['가격']:,.0f}원 × {s['수량']}주 | 사유: {s['사유'] or '-'}")
+                else:
+                    st.caption("해당 주 진입+청산 없음")
+
+                st.divider()
+
+                # 3. 시장 지표 요약
+                st.subheader("3. 시장 지표 요약")
+                _wk_start = _wr["week_start"]
+                _wk_end = _wr["week_end"]
+                try:
+                    _mkt_items = {
+                        "코스피": "KS11", "코스닥": "KQ11",
+                        "USD/KRW": "USD/KRW", "WTI": "CL=F",
+                    }
+                    _mkt_rows = []
+                    for label, code in _mkt_items.items():
+                        try:
+                            _mdf = fdr.DataReader(code, _wk_start, _wk_end)
+                            if _mdf is not None and len(_mdf) >= 2:
+                                _start_val = float(_mdf["Close"].iloc[0])
+                                _end_val = float(_mdf["Close"].iloc[-1])
+                                _chg = round((_end_val / _start_val - 1) * 100, 2)
+                                _mkt_rows.append({"지표": label, "시작": round(_start_val, 2), "종료": round(_end_val, 2), "변동률(%)": _chg})
+                        except:
+                            pass
+                    if _mkt_rows:
+                        _mkt_df = pd.DataFrame(_mkt_rows)
+                        _aggrid(_mkt_df, key=f"weekly_mkt_{_sel_week}", height=min(200, 40 + len(_mkt_df) * 35),
+                                fit_columns=True, color_map={"변동률(%)": "red_positive"})
+                except Exception as _e:
+                    st.warning(f"시장 데이터 조회 실패: {_e}")
 
     # ── 월별 리뷰 ─────────────────────────────
     with tab_review:
