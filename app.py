@@ -4167,16 +4167,14 @@ def show_portfolio():
                 # 1. 포트폴리오 현황 요약
                 st.subheader("1. 포트폴리오 현황 요약")
                 _c1, _c2, _c3 = st.columns(3)
-                _capital = _wr["capital"]
-                _cum_pnl = _wr["cum_pnl"]
-                _total_asset = _capital + _cum_pnl if _capital > 0 else 0
-                _cum_ret = round(_cum_pnl / _capital * 100, 2) if _capital > 0 else 0
+                _ws_val = _wr["week_start_val"]
+                _we_val = _wr["week_end_val"]
+                _w_ret = _wr["weekly_return_pct"]
                 _weekly_pnl = _wr["summary"]["주간실현수익"] if _wr["summary"] else 0
-                _weekly_ret = round(_weekly_pnl / _capital * 100, 2) if _capital > 0 else 0
 
-                _c1.metric("잔액", f"{_total_asset:,.0f}원")
-                _c2.metric("누적수익률", f"{_cum_ret:+.2f}%")
-                _c3.metric("주간실현수익", f"{_weekly_pnl:+,.0f}원", f"{_weekly_ret:+.2f}%")
+                _c1.metric("주초 평가", f"{_ws_val:,.0f}원")
+                _c2.metric("주말 평가", f"{_we_val:,.0f}원", f"{_we_val - _ws_val:+,.0f}원")
+                _c3.metric("주간 수익률", f"{_w_ret:+.2f}%")
 
                 st.divider()
 

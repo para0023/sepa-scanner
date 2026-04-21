@@ -1187,15 +1187,57 @@ def get_weekly_review(week_start: str = None) -> dict:
                 "주간실현수익": round(weekly_realized),
             }
 
-    # 포트폴리오 잔액
+    # 포트폴리오 평가금액 (주초/주말)
     capital = get_total_capital()
-    cum_pnl = df_pnl[[c for c in df_pnl.columns if "비용차감손익" in c][0]].sum() if not df_pnl.empty and any("비용차감손익" in c for c in df_pnl.columns) else 0
+    import FinanceDataReader as _fdr
+
+    def _eval_portfolio_at(eval_date_str: str) -> float:
+        """특정 날짜 기준 보유종목 평가금액 (현금 + 보유주식 평가)"""
+        eval_dt = pd.to_datetime(eval_date_str)
+        total = capital  # 원금
+        # 누적 실현손익 (해당 날짜까지)
+        if not df_pnl.empty:
+            _pnl_cols = [c for c in df_pnl.columns if "비용차감손익" in c]
+            if _pnl_cols:
+                _cum = df_pnl[df_pnl["_date"] <= eval_dt][_pnl_cols[0]].sum()
+                total += _cum
+        # 보유종목 평가손익 (해당 날짜 기준)
+        for pos in data["positions"]:
+            buys_before = [t for t in pos["trades"] if t["type"] == "buy" and t["date"] <= eval_date_str]
+            sells_before = [t for t in pos["trades"] if t["type"] == "sell" and t["date"] <= eval_date_str]
+            buy_qty = sum(t["quantity"] for t in buys_before)
+            sell_qty = sum(t["quantity"] for t in sells_before)
+            hold_qty = buy_qty - sell_qty
+            if hold_qty <= 0:
+                continue
+            avg_buy = sum(t["price"] * t["quantity"] for t in buys_before) / buy_qty if buy_qty > 0 else 0
+            # 해당 날짜 종가 조회
+            try:
+                _pdf = _fdr.DataReader(pos["ticker"], (eval_dt - pd.Timedelta(days=7)).strftime("%Y-%m-%d"), eval_date_str)
+                if _pdf is not None and not _pdf.empty:
+                    _close = float(_pdf["Close"].iloc[-1])
+                    total += (_close - avg_buy) * hold_qty
+            except:
+                pass
+        return total
+
+    # 주초 = 월요일, 주말 = 금요일 (또는 전일)
+    _fri = ws + pd.Timedelta(days=4)  # 금요일
+    _prev_fri = ws - pd.Timedelta(days=3)  # 이전 주 금요일
+    _fri_str = _fri.strftime("%Y-%m-%d")
+    _prev_fri_str = _prev_fri.strftime("%Y-%m-%d")
+
+    week_end_val = _eval_portfolio_at(_fri_str)
+    week_start_val = _eval_portfolio_at(_prev_fri_str)
+    weekly_return_pct = round((week_end_val / week_start_val - 1) * 100, 2) if week_start_val > 0 else 0
 
     return {
         "week_start": ws_str,
         "week_end": we_str,
+        "week_start_val": round(week_start_val),
+        "week_end_val": round(week_end_val),
+        "weekly_return_pct": weekly_return_pct,
         "capital": capital,
-        "cum_pnl": round(cum_pnl),
         "summary": summary,
         "entries": entries,
         "exits": exits,
