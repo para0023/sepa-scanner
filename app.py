@@ -1275,29 +1275,44 @@ def show_dashboard():
         else:
             st.info("손절가가 설정된 보유 종목이 없습니다.")
 
-        # 총자산 (원금 + 누적실현손익)
+        # 총자산 (원금 + 누적실현손익 + 미실현손익)
         st.divider()
         set_portfolio_file("portfolio.json")
         kr_capital = get_total_capital()
         kr_pnl_df = get_realized_pnl()
-        _kr_pnl_col = [c for c in kr_pnl_df.columns if "실현손익" in c]
+        _kr_pnl_col = [c for c in kr_pnl_df.columns if "비용차감손익" in c]
         kr_cum_pnl = kr_pnl_df[_kr_pnl_col[0]].sum() if _kr_pnl_col and not kr_pnl_df.empty else 0
+        # 미실현 손익 (보유종목 평가)
+        kr_unrealized = 0
+        if not kr_open.empty and _cur_prices:
+            for _, _r in kr_open.iterrows():
+                _cp = _cur_prices.get(_r["종목코드"], 0)
+                if _cp > 0:
+                    kr_unrealized += (_cp - _r["평균매수가"]) * _r["수량"]
 
         set_portfolio_file("portfolio_us.json")
         us_capital = get_total_capital()
         us_pnl_df = get_realized_pnl()
-        _us_pnl_col = [c for c in us_pnl_df.columns if "실현손익" in c]
+        _us_pnl_col = [c for c in us_pnl_df.columns if "비용차감손익" in c]
         us_cum_pnl = us_pnl_df[_us_pnl_col[0]].sum() if _us_pnl_col and not us_pnl_df.empty else 0
+        us_unrealized = 0
+        if not us_open.empty and _cur_prices:
+            for _, _r in us_open.iterrows():
+                _cp = _cur_prices.get(_r["종목코드"], 0)
+                if _cp > 0:
+                    us_unrealized += (_cp - _r["평균매수가"]) * _r["수량"]
         set_portfolio_file("portfolio.json")
 
         if kr_capital > 0:
-            kr_total_asset = kr_capital + kr_cum_pnl
+            kr_total_asset = kr_capital + kr_cum_pnl + kr_unrealized
+            kr_total_ret = round((kr_total_asset / kr_capital - 1) * 100, 2)
             st.metric("한국 총자산", f"{kr_total_asset:,.0f} 원",
-                      f"실현손익 {kr_cum_pnl:+,.0f} 원", delta_color="normal")
+                      f"수익률 {kr_total_ret:+.2f}%", delta_color="normal")
         if us_capital > 0:
-            us_total_asset = us_capital + us_cum_pnl
+            us_total_asset = us_capital + us_cum_pnl + us_unrealized
+            us_total_ret = round((us_total_asset / us_capital - 1) * 100, 2)
             st.metric("미국 총자산", f"${us_total_asset:,.2f}",
-                      f"실현손익 ${us_cum_pnl:+,.2f}", delta_color="normal")
+                      f"수익률 {us_total_ret:+.2f}%", delta_color="normal")
 
     st.divider()
 
