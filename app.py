@@ -4424,6 +4424,47 @@ def show_portfolio():
                 except Exception as _e:
                     st.warning(f"시장 데이터 조회 실패: {_e}")
 
+                # ── PDF 다운로드 ──
+                st.divider()
+                if st.button("📄 PDF 다운로드", key=f"pdf_kr_{_sel_week}"):
+                    from weekly_pdf import generate_weekly_pdf
+                    with st.spinner("PDF 생성 중..."):
+                        # 차트 이미지 수집
+                        _all_trades = _wr["entries"] + _wr["exits"] + _wr["both"]
+                        _chart_imgs = {}
+                        for _t in _all_trades:
+                            _tk = _t["종목코드"]
+                            _ik = f"trade_img_{_tk}_{_sel_week}_entry"
+                            if _ik not in st.session_state:
+                                _ik = f"trade_img_{_tk}_{_sel_week}_exit"
+                            if _ik not in st.session_state:
+                                _ik = f"trade_img_{_tk}_{_sel_week}_both"
+                            _img = st.session_state.get(_ik, b"")
+                            if _img:
+                                _chart_imgs[_tk] = _img
+
+                        # 시장 데이터
+                        _mkt_for_pdf = []
+                        try:
+                            for label, code in {"코스피": "KS11", "코스닥": "KQ11", "USD/KRW": "USD/KRW", "WTI": "CL=F"}.items():
+                                _mdf = fdr.DataReader(code, _wr["week_start"], _wr["week_end"])
+                                if _mdf is not None and len(_mdf) >= 2:
+                                    _sv = float(_mdf["Close"].iloc[0])
+                                    _ev = float(_mdf["Close"].iloc[-1])
+                                    _mkt_for_pdf.append({"지표": label, "시작": round(_sv, 2), "종료": round(_ev, 2), "변동률(%)": round((_ev / _sv - 1) * 100, 2)})
+                        except:
+                            pass
+
+                        _pdf_bytes = generate_weekly_pdf(_wr, chart_images=_chart_imgs, market_data=_mkt_for_pdf, currency="원")
+
+                    st.download_button(
+                        "⬇️ PDF 파일 저장",
+                        data=_pdf_bytes,
+                        file_name=f"주간리포트_{_sel_week}.pdf",
+                        mime="application/pdf",
+                        key=f"dl_pdf_kr_{_sel_week}",
+                    )
+
     # ── 월별 리뷰 ─────────────────────────────
     with tab_review:
         _review_df = get_realized_pnl()
