@@ -4385,9 +4385,9 @@ def show_portfolio():
         _sys_total = _sys_cash + _bal_unrealized
 
         _bc1, _bc2 = st.columns(2)
-        _bc1.metric("현금 잔액", f"{_sys_cash:,.0f}원", help="원금 + 누적 비용차감손익")
-        _bc2.metric("총자산 (평가 포함)", f"{_sys_total:,.0f}원",
+        _bc1.metric("시스템 추정 총자산", f"{_sys_total:,.0f}원",
                     f"미실현손익 {_bal_unrealized:+,.0f}원")
+        _bc2.metric("현금 잔액", f"{_sys_cash:,.0f}원", help="원금 + 누적 비용차감손익")
 
         _adj_col1, _adj_col2 = st.columns(2)
         _actual_balance = _adj_col1.number_input("실제 잔액 (원)", min_value=0, step=100000, key="actual_balance")
@@ -4397,14 +4397,14 @@ def show_portfolio():
             if _actual_balance <= 0:
                 st.error("실제 잔액을 입력해주세요.")
             else:
-                _diff = _actual_balance - _sys_estimate
+                _diff = _actual_balance - _sys_total
                 if abs(_diff) < 1:
                     st.info("차이가 없습니다.")
                 else:
                     add_capital_flow(
                         _adj_date.strftime("%Y-%m-%d"),
                         _diff,
-                        f"잔액조정 (실잔액 {_actual_balance:,.0f} - 추정 {_sys_estimate:,.0f} = {_diff:+,.0f})"
+                        f"잔액조정 (증권사 {_actual_balance:,.0f} - 추정 {_sys_total:,.0f} = {_diff:+,.0f})"
                     )
                     st.success(f"조정 완료: {_diff:+,.0f}원")
                     st.rerun()
