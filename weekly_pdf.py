@@ -199,4 +199,4 @@ def generate_weekly_pdf(weekly_data: dict, chart_images: dict = None, market_dat
     else:
         pdf.body_text("시장 데이터 없음")
 
-    return pdf.output()
+    return bytes(pdf.output())
