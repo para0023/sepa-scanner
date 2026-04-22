@@ -289,7 +289,7 @@ def add_buy(
     price: float, quantity: int,
     stop_loss: float, entry_reason: str, memo: str = "",
     take_profit: float = 0,
-    entry_type_override: str | None = None,
+    entry_type_override=None,
 ) -> str:
     """매수 기록. 동일 종목 오픈 포지션이 있으면 추가매수(피라미딩).
 
