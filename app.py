@@ -30,7 +30,7 @@ from relative_strength import (
 )
 from market_ranking import calc_market_ranking, get_cache_info, _cache_path, refresh_52w_high, apply_vcp_filter, apply_stage2_filter, get_filter_cache_info, scan_vcp_patterns, get_vcp_pattern_cache_info, scan_short_candidates, get_short_cache_info, scan_52w_high, get_52w_high_cache_info, INVERSE_ETF_MAP
 from backtest import run_intraday_reversal_backtest, get_backtest_cache_info, run_signal_backtest, get_signal_cache_info
-from portfolio import add_buy, add_sell, get_open_positions, get_trade_log, calculate_performance, update_stop_loss, get_stop_loss_history, get_realized_pnl, get_position_pnl, get_total_capital, set_initial_capital, add_capital_flow, get_capital_flows, delete_capital_flow, delete_trade, update_trade, get_equity_curve, get_monthly_performance, get_trades_by_ticker, set_portfolio_file, update_take_profit, get_monthly_review, get_available_weeks, get_weekly_review
+from portfolio import add_buy, add_sell, get_open_positions, get_trade_log, calculate_performance, update_stop_loss, get_stop_loss_history, get_realized_pnl, get_position_pnl, get_total_capital, set_initial_capital, add_capital_flow, get_capital_flows, delete_capital_flow, delete_trade, update_trade, get_equity_curve, get_monthly_performance, get_trades_by_ticker, set_portfolio_file, update_take_profit, get_monthly_review, get_available_weeks, get_weekly_review, has_open_position
 from relative_strength import build_trade_chart_image
 from trading_journal import get_journal_dates, get_journal, save_journal, delete_journal
 from watchlist import (load_watchlists, save_watchlists, add_group, delete_group,
@@ -2718,23 +2718,39 @@ def _show_portfolio_us():
                     us_ma   = c8.selectbox("기준 이동평균", [5, 20, 60, 100, 120, 200], index=1, key="us_buy_ma")
                     us_memo = c9.text_input("메모", key="us_buy_memo")
 
+                # 신규/추가매수 자동 판정 + 사용자 덮어쓰기 옵션
+                _us_has_open = has_open_position(us_ticker) if us_ticker else False
+                if _us_has_open:
+                    st.caption(f"🔁 이 티커에 오픈 포지션 존재 → **추가매수(add_on)**로 자동 기록됩니다.")
+                    us_force_initial = st.checkbox(
+                        "이 매수를 신규 진입(initial)으로 기록",
+                        value=False,
+                        key="us_buy_force_initial",
+                        help="완전히 다른 근거로 재진입하는 경우에만 체크하세요. 주간 리포트 '신규 진입' 카운트에 포함됩니다.",
+                    )
+                else:
+                    st.caption("🆕 신규 진입(initial)으로 기록됩니다.")
+                    us_force_initial = False
+
                 if st.form_submit_button("✅ 매수 저장", type="primary"):
                     _reason_type  = st.session_state.get("us_buy_reason_type", "PB")
                     _entry_reason = "BO" if _reason_type == "BO" else f"{_reason_type}{us_ma}"
                     if not us_ticker or not us_name or us_price <= 0:
                         st.error("Ticker, Company Name, 매수가를 입력해주세요.")
                     else:
+                        _override = "initial" if (_us_has_open and us_force_initial) else None
                         add_buy(
                             ticker=us_ticker, name=us_name,
                             date=us_date.strftime("%Y-%m-%d"),
                             price=us_price, quantity=int(us_qty),
                             stop_loss=us_stop, entry_reason=_entry_reason, memo=us_memo,
                             take_profit=us_tp,
+                            entry_type_override=_override,
                         )
                         st.session_state["portfolio_toast"] = (f"✅ {us_name} 매수 저장 완료!", "success")
                         st.session_state["us_buy_expander_open"] = True
                         # 폼 필드 초기화 (다음 입력 준비)
-                        for k in ["us_buy_ticker", "us_buy_name", "us_buy_price", "us_buy_qty", "us_buy_stop", "us_buy_tp", "us_buy_memo"]:
+                        for k in ["us_buy_ticker", "us_buy_name", "us_buy_price", "us_buy_qty", "us_buy_stop", "us_buy_tp", "us_buy_memo", "us_buy_force_initial"]:
                             if k in st.session_state:
                                 del st.session_state[k]
                         st.rerun()
@@ -3734,23 +3750,39 @@ def show_portfolio():
                     ma_num   = c8.selectbox("기준 이동평균", [5, 20, 60, 100, 120, 200], index=1, key="buy_ma")
                     buy_memo = c9.text_input("메모", key="buy_memo")
 
+                # 신규/추가매수 자동 판정 + 사용자 덮어쓰기 옵션
+                _kr_has_open = has_open_position(buy_ticker) if buy_ticker else False
+                if _kr_has_open:
+                    st.caption("🔁 이 종목에 오픈 포지션 존재 → **추가매수(add_on)**로 자동 기록됩니다.")
+                    buy_force_initial = st.checkbox(
+                        "이 매수를 신규 진입(initial)으로 기록",
+                        value=False,
+                        key="buy_force_initial",
+                        help="완전히 다른 근거로 재진입하는 경우에만 체크하세요. 주간 리포트 '신규 진입' 카운트에 포함됩니다.",
+                    )
+                else:
+                    st.caption("🆕 신규 진입(initial)으로 기록됩니다.")
+                    buy_force_initial = False
+
                 if st.form_submit_button("✅ 매수 저장", type="primary"):
                     reason_type  = st.session_state.get("buy_reason_type_outer", "PB")
                     entry_reason = "BO" if reason_type == "BO" else f"{reason_type}{ma_num}"
                     if not buy_ticker or not buy_name or buy_price <= 0:
                         st.error("종목코드, 종목명, 매수가를 입력해주세요.")
                     else:
+                        _override = "initial" if (_kr_has_open and buy_force_initial) else None
                         add_buy(
                             ticker=buy_ticker, name=buy_name,
                             date=buy_date.strftime("%Y-%m-%d"),
                             price=buy_price, quantity=int(buy_qty),
                             stop_loss=buy_stop, entry_reason=entry_reason, memo=buy_memo,
                             take_profit=buy_tp,
+                            entry_type_override=_override,
                         )
                         st.session_state["portfolio_toast"] = (f"✅ {buy_name} 매수 저장 완료!", "success")
                         st.session_state["buy_expander_open"] = True
                         # 폼 필드 초기화 (다음 입력 준비)
-                        for k in ["buy_ticker", "buy_name", "buy_price", "buy_qty", "buy_stop", "buy_tp", "buy_memo", "buy_stock_search"]:
+                        for k in ["buy_ticker", "buy_name", "buy_price", "buy_qty", "buy_stop", "buy_tp", "buy_memo", "buy_stock_search", "buy_force_initial"]:
                             if k in st.session_state:
                                 del st.session_state[k]
                         st.rerun()

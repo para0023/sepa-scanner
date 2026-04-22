@@ -13,6 +13,24 @@
 - 거래별 성과분석 평균매수가: FIFO → 가중평균 방식으로 변경 (증권사 기준 일치)
 - 세파스캐너 가격 변동폭: 종가변동률 → 고저폭 기준으로 변경
 
+### Weekly insights 자동화
+- `reports/weekly/insights_<YYYY>-W<NN>.md` 자동 생성 스케줄 작업 도입
+- 첫 실전 실행 (2026-04-22 수): W16 insights가 이미 피드백 반영 완료 + W17 미완료 상태 → 덮어쓰지 않고 `runlog_2026-04-22.md`로 skip 사유/W17 중간 스냅샷 기록
+- 제안: 스케줄을 매주 월요일 아침으로 이동 + 동일 주차 파일 72시간 내 재생성 skip 가드
+
+### playbook.md 개정 (W17 피드백 반영)
+- **HB100**: "신규 진입"과 "추가매수(pyramid add)"를 분리. 핸들 상단 도달 시 추가매수 허용 조항 신설 (04-21 에코프로 on-plan 케이스 근거)
+- **승자 청산 룰 교체**: 초안(+8~10% / 50% 익절, 최소 5일 보유) → 실사용 4단계(+20% → 20% / 일중반전 → 10% / MA20 → 30% / MA60 → 40%)로 공식화
+- W16 insights §6 "승자 조기 청산" 평가는 데이터 오독으로 판단 — 다음 W17 insights에서 정정 예정
+
+### entry_type 필드 도입 (신규 진입 vs 추가매수 구분)
+- `portfolio.py add_buy()`: trade dict와 trade_log에 `entry_type` 기록 ("initial" | "add_on"). `entry_type_override` 파라미터로 수동 덮어쓰기 지원. 기존 is_new 판정 로직 재활용.
+- `portfolio.py has_open_position(ticker)`: 헬퍼 함수 신설 (UI 자동 판정용)
+- `migrate_entry_type.py`: 기존 데이터 소급 마이그레이션 스크립트 + 자동 백업(.bak.<epoch>). 실행 결과: KR 52 initial/29 add_on, US 39 initial/6 add_on (총 126건 분류)
+- `weekly_report.py`: "매수 N건 (신규 X / 추가매수 Y)" 배지, §2b "이번 주 추가매수" 별도 테이블 신설. W16 재렌더 — 신규 14건 외에 **추가매수 12건**이 드러남
+- `app.py`: KR/US 매수 폼 양쪽에 자동 판정 배지(🆕/🔁) + "신규 진입으로 기록" 덮어쓰기 체크박스 추가 (재진입 케이스 대비)
+- 검증: 에코프로(086520) HB100 03-27 initial → 04-14/17/21 add_on 정확히 분류. W17 스냅샷 재계산 결과 신규 진입 2건(대한해운 PB5, OPTX PB20) / 추가매수 2건(에코프로 HB100, EVMN HB5)
+
 ---
 
 ## 2026-04-21

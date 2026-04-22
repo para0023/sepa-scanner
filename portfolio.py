@@ -289,8 +289,17 @@ def add_buy(
     price: float, quantity: int,
     stop_loss: float, entry_reason: str, memo: str = "",
     take_profit: float = 0,
+    entry_type_override: str | None = None,
 ) -> str:
-    """매수 기록. 동일 종목 오픈 포지션이 있으면 추가매수(피라미딩)."""
+    """매수 기록. 동일 종목 오픈 포지션이 있으면 추가매수(피라미딩).
+
+    entry_type:
+      - "initial"  : 신규 진입 (해당 티커에 오픈 포지션이 없었음)
+      - "add_on"   : 추가매수 (기보유 포지션에 스케일 업, entry_reason은 최초 근거 유지)
+    자동 판정되며, entry_type_override로 수동 덮어쓰기 가능.
+    덮어쓰기 케이스 예: 같은 티커를 완전히 다른 근거로 재진입하는 경우 초기 포지션이
+    이미 존재하더라도 "initial"로 기록하도록 사용자가 선택.
+    """
     data = _load()
     pos  = next(
         (p for p in data["positions"] if p["ticker"] == ticker and p["status"] == "open"),
@@ -304,6 +313,13 @@ def add_buy(
                "stop_loss_history": []}
         data["positions"].append(pos)
 
+    # entry_type 판정
+    auto_entry_type = "initial" if is_new else "add_on"
+    if entry_type_override in ("initial", "add_on"):
+        entry_type = entry_type_override
+    else:
+        entry_type = auto_entry_type
+
     trade = {
         "id":           str(uuid.uuid4()),
         "type":         "buy",
@@ -312,6 +328,7 @@ def add_buy(
         "quantity":     quantity,
         "stop_loss":    stop_loss,
         "entry_reason": entry_reason,
+        "entry_type":   entry_type,
         "memo":         memo,
     }
     if take_profit and take_profit > 0:
@@ -319,13 +336,15 @@ def add_buy(
     pos["trades"].append(trade)
 
     # 손절가 이력 자동 기록
-    source = "최초매수" if is_new else "추가매수"
+    source = "최초매수" if entry_type == "initial" else "추가매수"
     _add_stop_loss_record(pos, date, stop_loss, source, note=memo)
 
     data["trade_log"].append({
         "date": date, "ticker": ticker, "name": name,
         "type": "매수", "price": price, "quantity": quantity,
-        "entry_reason": entry_reason, "memo": memo,
+        "entry_reason": entry_reason,
+        "entry_type":   entry_type,
+        "memo": memo,
         "position_id": pos["id"],
         "trade_id": pos["trades"][-1]["id"],
     })
@@ -556,6 +575,17 @@ def get_stop_loss_history(position_id: str) -> pd.DataFrame:
     df.columns = [{"date": "날짜", "price": "손절가", "source": "구분", "note": "메모"}.get(c, c)
                   for c in df.columns]
     return df
+
+
+def has_open_position(ticker: str) -> bool:
+    """해당 티커에 현재 오픈 포지션이 있으면 True (추가매수 자동 판정용)."""
+    if not ticker:
+        return False
+    data = _load()
+    return any(
+        p["ticker"] == ticker and p.get("status") == "open"
+        for p in data.get("positions", [])
+    )
 
 
 def get_open_positions() -> pd.DataFrame:
