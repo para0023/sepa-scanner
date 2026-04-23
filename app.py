@@ -2661,8 +2661,8 @@ def _render_return_distribution(df, label: str, prefix: str):
 
 def _show_portfolio_us():
     """미국 포트폴리오 UI (달러 기준)"""
-    tab_hold, tab_pnl, tab_perf, tab_weekly, tab_review, tab_balance, tab_log = st.tabs(
-        ["📋 보유 현황", "📊 거래별 성과분석", "📊 종목별 성과분석", "📊 주간 리뷰", "📅 월별 리뷰", "💰 잔액관리", "📜 거래 이력"]
+    tab_hold, tab_risk, tab_pnl, tab_perf, tab_weekly, tab_review, tab_balance, tab_log = st.tabs(
+        ["📋 보유 현황", "🛡️ 위험관리", "📊 거래별 성과분석", "📊 종목별 성과분석", "📊 주간 리뷰", "📅 월별 리뷰", "💰 잔액관리", "📜 거래 이력"]
     )
 
     # ── 보유 현황 ─────────────────────────────
@@ -3017,6 +3017,112 @@ def _show_portfolio_us():
                     st.info("손절가 변경 이력이 없습니다.")
                 else:
                     _aggrid(df_sl_hist, key="us_sl_hist_table", height=250, click_nav=False)
+
+    # ── 위험관리 (미국) ─────────────────────────────
+    with tab_risk:
+        import plotly.graph_objects as _go
+        _oti_color = {"🟢": "normal", "🟡": "normal", "🟠": "inverse", "🔴": "inverse"}
+
+        st.subheader("OTI (과매매지수)")
+        _r_oti_us = calc_oti(days=3)
+        st.metric("🇺🇸 OTI", f"{_r_oti_us['oti']}", f"{_r_oti_us['level']} | 3일내 {_r_oti_us['count']}종목",
+                  delta_color=_oti_color.get(_r_oti_us["level"][:2], "normal"))
+        if _r_oti_us["details"]:
+            for d in _r_oti_us["details"]:
+                st.caption(f"  · {d['종목명']} ({d['보유일']}일, {d['수익률']:+.2f}%)")
+
+        _r_oti_hist_us = calc_oti_history(days=3, lookback=60)
+        _r_oti_fig = _go.Figure()
+        if not _r_oti_hist_us.empty:
+            _r_oti_fig.add_trace(_go.Scatter(x=_r_oti_hist_us["날짜"], y=_r_oti_hist_us["OTI"], mode="lines", name="OTI",
+                                             line=dict(color="#1A5ECC", width=2, shape="spline", smoothing=1.0)))
+        _r_oti_fig.add_hline(y=100, line_dash="dash", line_color="#888", line_width=1, annotation_text="정상(100)", annotation_font_color="#888")
+        _r_oti_fig.add_hline(y=200, line_dash="dot", line_color="#F39C12", line_width=1, annotation_text="주의(200)", annotation_font_color="#F39C12")
+        _r_oti_fig.add_hline(y=500, line_dash="dot", line_color="#E74C3C", line_width=1, annotation_text="WALK AWAY(500)", annotation_font_color="#E74C3C")
+        _r_oti_fig.update_layout(paper_bgcolor="#1a1a2e", plot_bgcolor="#1a1a2e",
+            xaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)"),
+            yaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)", title="OTI"),
+            font=dict(color="#AAA"), height=250, margin=dict(l=50, r=20, t=10, b=30))
+        st.plotly_chart(_r_oti_fig, use_container_width=True)
+
+        st.divider()
+        st.subheader("시장 추세 vs 익스포져")
+
+        @st.cache_data(ttl=3600)
+        def _calc_ms_us_risk(lookback=90):
+            _end = datetime.now()
+            _start = _end - timedelta(days=lookback + 60)
+            _df = fdr.DataReader("^GSPC", _start, _end)
+            if _df.empty or len(_df) < 30: return pd.DataFrame()
+            _close, _volume = _df["Close"], _df["Volume"]
+            _ma20 = _close.rolling(20).mean()
+            _slope = (_ma20 / _ma20.shift(10) - 1) * 100
+            _vol_ma60 = _volume.rolling(60).mean()
+            _vol_ratio = _volume / _vol_ma60
+            _low_rising = _close.rolling(20).min() > _close.rolling(20).min().shift(10)
+            def _s(s):
+                if s <= -3: return 0
+                elif s <= -1: return 30
+                elif s <= 0: return 50
+                elif s <= 1: return 70
+                elif s <= 3: return 80
+                else: return 100
+            def _p(above, vr):
+                return 100 if above else (50 if vr <= 1.0 else 20)
+            r = pd.DataFrame({"날짜": _df.index, "종가": _close, "MA20": _ma20, "기울기": _slope}).dropna()
+            r["기울기점수"] = r["기울기"].apply(_s)
+            r["위치점수"] = [_p(bool(_close.loc[i] > _ma20.loc[i]) if i in _close.index and i in _ma20.index else False,
+                              float(_vol_ratio.loc[i]) if i in _vol_ratio.index else 1.0) for i in r.index]
+            r["저점점수"] = [100 if (i in _low_rising.index and bool(_low_rising.loc[i])) else 30 for i in r.index]
+            r["시장점수"] = (r["기울기점수"] * 0.5 + r["위치점수"] * 0.3 + r["저점점수"] * 0.2).round(0).astype(int)
+            return r.tail(lookback)
+
+        _ms_us = _calc_ms_us_risk()
+        _r_us_exp_hist = calc_exposure_history(lookback=90)
+        _r_us_exp = _r_us_exp_hist.iloc[-1]["익스포져"] if not _r_us_exp_hist.empty else 0
+
+        def _trend_alignment_us(score, exposure, oti_val=100):
+            if score >= 70:
+                if exposure >= 80: label = "✅ 추세 순응"
+                elif exposure >= 50: label = "🟡 가속 필요"
+                else: label = "⚠️ 기회 미활용"
+            elif score >= 30:
+                if exposure >= 80: label = "🟠 과다 노출"
+                elif exposure >= 50: label = "🟡 중립"
+                else: label = "🟢 방어 적정"
+            else:
+                if exposure >= 80: label = "🔴 추세 역행"
+                elif exposure >= 50: label = "⚠️ 청산 미흡"
+                else: label = "✅ 관망 적정"
+            if oti_val >= 200 and exposure < 50:
+                label += " · ⚠️저노출 과매매"
+            return label
+
+        _ru1, _ru2 = st.columns(2)
+        with _ru1:
+            if not _ms_us.empty:
+                _ru_ms = int(_ms_us.iloc[-1]["시장점수"])
+                _ru_lv = "🟢 최적" if _ru_ms >= 85 else "🟢 양호" if _ru_ms >= 70 else "🟡 보통" if _ru_ms >= 50 else "🟠 주의" if _ru_ms >= 30 else "🔴 위험"
+                st.metric("시장점수", f"{_ru_ms}", f"{_ru_lv} | 기울기 {_ms_us.iloc[-1]['기울기']:+.1f}%")
+        with _ru2:
+            _ru_align = _trend_alignment_us(int(_ms_us.iloc[-1]["시장점수"]) if not _ms_us.empty else 50, _r_us_exp, _r_oti_us["oti"])
+            st.metric("익스포져", f"{_r_us_exp}%", _ru_align)
+
+        _ru_fig = _go.Figure()
+        if not _ms_us.empty:
+            _ru_fig.add_trace(_go.Scatter(x=_ms_us["날짜"], y=_ms_us["시장점수"], mode="lines", name="시장점수",
+                                          line=dict(color="#1A5ECC", width=2, shape="spline", smoothing=1.0)))
+        if not _r_us_exp_hist.empty:
+            _ru_fig.add_trace(_go.Scatter(x=_r_us_exp_hist["날짜"], y=_r_us_exp_hist["익스포져"], mode="lines", name="익스포져",
+                                          line=dict(color="#27AE60", width=2, shape="spline", smoothing=1.0)))
+        _ru_fig.add_hline(y=85, line_dash="dot", line_color="#444", line_width=1)
+        _ru_fig.add_hline(y=30, line_dash="dot", line_color="#444", line_width=1)
+        _ru_fig.update_layout(paper_bgcolor="#1a1a2e", plot_bgcolor="#1a1a2e",
+            xaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)"),
+            yaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)", title="점수 / 익스포져(%)", range=[0, 105]),
+            font=dict(color="#AAA"), height=250, margin=dict(l=50, r=20, t=10, b=30),
+            legend=dict(orientation="h", x=0, y=1.1))
+        st.plotly_chart(_ru_fig, use_container_width=True)
 
     # ── 거래별 성과분석 ─────────────────────────────
     with tab_pnl:
@@ -4062,39 +4168,22 @@ def show_portfolio():
         st.subheader("OTI (과매매지수)")
         import plotly.graph_objects as _go
         _oti_color = {"🟢": "normal", "🟡": "normal", "🟠": "inverse", "🔴": "inverse"}
-        _r_oti_col1, _r_oti_col2 = st.columns(2)
-        with _r_oti_col1:
-            set_portfolio_file("portfolio.json")
-            _r_oti_kr = calc_oti(days=3)
-            st.metric("🇰🇷 OTI", f"{_r_oti_kr['oti']}", f"{_r_oti_kr['level']} | 3일내 {_r_oti_kr['count']}종목",
-                      delta_color=_oti_color.get(_r_oti_kr["level"][:2], "normal"))
-            if _r_oti_kr["details"]:
-                for d in _r_oti_kr["details"]:
-                    st.caption(f"  · {d['종목명']} ({d['보유일']}일, {d['수익률']:+.2f}%)")
-        with _r_oti_col2:
-            set_portfolio_file("portfolio_us.json")
-            _r_oti_us = calc_oti(days=3)
-            st.metric("🇺🇸 OTI", f"{_r_oti_us['oti']}", f"{_r_oti_us['level']} | 3일내 {_r_oti_us['count']}종목",
-                      delta_color=_oti_color.get(_r_oti_us["level"][:2], "normal"))
-            if _r_oti_us["details"]:
-                for d in _r_oti_us["details"]:
-                    st.caption(f"  · {d['종목명']} ({d['보유일']}일, {d['수익률']:+.2f}%)")
         set_portfolio_file("portfolio.json")
+        _r_oti_kr = calc_oti(days=3)
+        st.metric("🇰🇷 OTI", f"{_r_oti_kr['oti']}", f"{_r_oti_kr['level']} | 3일내 {_r_oti_kr['count']}종목",
+                  delta_color=_oti_color.get(_r_oti_kr["level"][:2], "normal"))
+        if _r_oti_kr["details"]:
+            for d in _r_oti_kr["details"]:
+                st.caption(f"  · {d['종목명']} ({d['보유일']}일, {d['수익률']:+.2f}%)")
 
         # OTI 트렌드
         set_portfolio_file("portfolio.json")
         _r_oti_hist_kr = calc_oti_history(days=3, lookback=60)
-        set_portfolio_file("portfolio_us.json")
-        _r_oti_hist_us = calc_oti_history(days=3, lookback=60)
-        set_portfolio_file("portfolio.json")
 
         _r_oti_fig = _go.Figure()
         if not _r_oti_hist_kr.empty:
-            _r_oti_fig.add_trace(_go.Scatter(x=_r_oti_hist_kr["날짜"], y=_r_oti_hist_kr["OTI"], mode="lines", name="한국",
+            _r_oti_fig.add_trace(_go.Scatter(x=_r_oti_hist_kr["날짜"], y=_r_oti_hist_kr["OTI"], mode="lines", name="OTI",
                                              line=dict(color="#D92B2B", width=2, shape="spline", smoothing=1.0)))
-        if not _r_oti_hist_us.empty:
-            _r_oti_fig.add_trace(_go.Scatter(x=_r_oti_hist_us["날짜"], y=_r_oti_hist_us["OTI"], mode="lines", name="미국",
-                                             line=dict(color="#1A5ECC", width=2, shape="spline", smoothing=1.0)))
         _r_oti_fig.add_hline(y=100, line_dash="dash", line_color="#888", line_width=1, annotation_text="정상(100)", annotation_font_color="#888")
         _r_oti_fig.add_hline(y=200, line_dash="dot", line_color="#F39C12", line_width=1, annotation_text="주의(200)", annotation_font_color="#F39C12")
         _r_oti_fig.add_hline(y=500, line_dash="dot", line_color="#E74C3C", line_width=1, annotation_text="WALK AWAY(500)", annotation_font_color="#E74C3C")
@@ -4148,7 +4237,6 @@ def show_portfolio():
             return result.tail(lookback)
 
         _ms_kr = _calc_market_score_risk("KS11")
-        _ms_us = _calc_market_score_risk("^GSPC")
 
         # 제안 2,3,4: 9칸 매트릭스 + OTI 오버레이
         def _trend_alignment(score, exposure, oti_val=100):
@@ -4175,10 +4263,6 @@ def show_portfolio():
         set_portfolio_file("portfolio.json")
         _r_kr_exp_hist = calc_exposure_history(lookback=90)
         _r_kr_exp = _r_kr_exp_hist.iloc[-1]["익스포져"] if not _r_kr_exp_hist.empty else 0
-        set_portfolio_file("portfolio_us.json")
-        _r_us_exp_hist = calc_exposure_history(lookback=90)
-        _r_us_exp = _r_us_exp_hist.iloc[-1]["익스포져"] if not _r_us_exp_hist.empty else 0
-        set_portfolio_file("portfolio.json")
 
         # 한국
         st.markdown("**🇰🇷 한국**")
@@ -4209,34 +4293,6 @@ def show_portfolio():
         st.plotly_chart(_rk_fig, use_container_width=True)
 
         st.divider()
-
-        # 미국
-        st.markdown("**🇺🇸 미국**")
-        _ru1, _ru2 = st.columns(2)
-        with _ru1:
-            if not _ms_us.empty:
-                _ru_ms = int(_ms_us.iloc[-1]["시장점수"])
-                _ru_lv = "🟢 최적" if _ru_ms >= 85 else "🟢 양호" if _ru_ms >= 70 else "🟡 보통" if _ru_ms >= 50 else "🟠 주의" if _ru_ms >= 30 else "🔴 위험"
-                st.metric("시장점수", f"{_ru_ms}", f"{_ru_lv} | 기울기 {_ms_us.iloc[-1]['기울기']:+.1f}%")
-        with _ru2:
-            _ru_align = _trend_alignment(int(_ms_us.iloc[-1]["시장점수"]) if not _ms_us.empty else 50, _r_us_exp, _r_oti_us["oti"])
-            st.metric("익스포져", f"{_r_us_exp}%", _ru_align)
-
-        _ru_fig = _go.Figure()
-        if not _ms_us.empty:
-            _ru_fig.add_trace(_go.Scatter(x=_ms_us["날짜"], y=_ms_us["시장점수"], mode="lines", name="시장점수",
-                                          line=dict(color="#1A5ECC", width=2, shape="spline", smoothing=1.0)))
-        if not _r_us_exp_hist.empty:
-            _ru_fig.add_trace(_go.Scatter(x=_r_us_exp_hist["날짜"], y=_r_us_exp_hist["익스포져"], mode="lines", name="익스포져",
-                                          line=dict(color="#27AE60", width=2, shape="spline", smoothing=1.0)))
-        _ru_fig.add_hline(y=85, line_dash="dot", line_color="#444", line_width=1)
-        _ru_fig.add_hline(y=30, line_dash="dot", line_color="#444", line_width=1)
-        _ru_fig.update_layout(paper_bgcolor="#1a1a2e", plot_bgcolor="#1a1a2e",
-            xaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)"),
-            yaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)", title="점수 / 익스포져(%)", range=[0, 105]),
-            font=dict(color="#AAA"), height=250, margin=dict(l=50, r=20, t=10, b=30),
-            legend=dict(orientation="h", x=0, y=1.1))
-        st.plotly_chart(_ru_fig, use_container_width=True)
 
     # ── 거래별 성과분석 ────────────────────────
     with tab_pnl:
