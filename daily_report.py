@@ -315,6 +315,31 @@ def _section_vcp_scanner(markets: list) -> str:
     return "\n".join(lines)
 
 
+def _section_risk_status(portfolio_file: str) -> str:
+    """포트폴리오 위험상태 요약 (OTI)"""
+    try:
+        set_portfolio_file(portfolio_file)
+        from portfolio import calc_oti
+        oti = calc_oti(days=3)
+
+        lines = ["\n<b>⚠️ 포트폴리오 위험상태</b>"]
+        lines.append(f"OTI (과매매지수): <b>{oti['oti']}</b> {oti['level']}")
+        lines.append(f"3일내 청산: {oti['count']}종목")
+
+        if oti['details']:
+            for d in oti['details']:
+                lines.append(f"  · {d['종목명']} ({d['보유일']}일, {d['수익률']:+.2f}%)")
+
+        if oti['oti'] >= 500:
+            lines.append("\n⛔ <b>WALK AWAY</b> — 오늘은 거래하지 마세요!")
+        elif oti['oti'] >= 200:
+            lines.append("\n⚠️ 매매 속도를 줄이세요.")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"\n<b>⚠️ 위험상태</b>\nOTI 계산 실패: {e}"
+
+
 def _section_pattern_scanner(markets: list) -> str:
     """4. 패턴스캐너 — VCP 패턴 감지 종목"""
     lines = ["\n<b>📐 패턴스캐너 (VCP 패턴)</b>"]
@@ -429,6 +454,7 @@ def generate_report(region: str) -> str:
         f"<b>{title}</b>",
         _section_market_index(markets, index_codes),
         _section_portfolio(portfolio_file, is_kr),
+        _section_risk_status(portfolio_file),
         _section_vcp_scanner(markets),
         _section_pattern_scanner(markets),
         f"\n<i>SEPA Scanner  {now.strftime('%H:%M:%S')}</i>",
