@@ -1201,6 +1201,103 @@ def show_dashboard():
     )
     st.plotly_chart(_oti_fig, use_container_width=True)
 
+    # ── 시장 추세 점수 ──────────────────────────────────
+    st.subheader("시장 추세 점수")
+
+    @st.cache_data(ttl=3600)
+    def _calc_market_score(index_code, lookback=90):
+        """시장 추세 점수 계산 (기울기50% + MA20위치30% + 저점추이20%)"""
+        import numpy as _np
+        _end = datetime.now()
+        _start = _end - timedelta(days=lookback + 60)
+        _df = fdr.DataReader(index_code, _start, _end)
+        if _df.empty or len(_df) < 30:
+            return pd.DataFrame()
+        _close = _df["Close"]
+        _volume = _df["Volume"]
+        _ma20 = _close.rolling(20).mean()
+        _slope = (_ma20 / _ma20.shift(10) - 1) * 100
+        _vol_ma60 = _volume.rolling(60).mean()
+        _vol_ratio = _volume / _vol_ma60
+        _rolling_low = _close.rolling(20).min()
+        _low_rising = _rolling_low > _rolling_low.shift(10)
+
+        def _s_score(s):
+            if s <= -3: return 0
+            elif s <= -1: return 30
+            elif s <= 0: return 50
+            elif s <= 1: return 70
+            elif s <= 3: return 80
+            else: return 100
+
+        def _p_score(above, vr):
+            if above: return 100
+            elif vr <= 1.0: return 50
+            else: return 20
+
+        result = pd.DataFrame({
+            "날짜": _df.index,
+            "종가": _close,
+            "MA20": _ma20,
+            "기울기": _slope,
+        }).dropna()
+
+        result["기울기점수"] = result["기울기"].apply(_s_score)
+        result["위치점수"] = [_p_score(
+            _close.iloc[i] > _ma20.iloc[i] if i < len(_close) else False,
+            _vol_ratio.iloc[i] if i < len(_vol_ratio) else 1.0
+        ) for i in result.index]
+        result["저점점수"] = [100 if _low_rising.iloc[i] else 30 for i in result.index]
+        result["시장점수"] = (result["기울기점수"] * 0.5 + result["위치점수"] * 0.3 + result["저점점수"] * 0.2).round(0).astype(int)
+
+        return result.tail(lookback)
+
+    _ms_kr = _calc_market_score("KS11")
+    _ms_us = _calc_market_score("^GSPC")
+
+    _ms_col1, _ms_col2 = st.columns(2)
+    with _ms_col1:
+        if not _ms_kr.empty:
+            _cur_ms = _ms_kr.iloc[-1]["시장점수"]
+            _ms_level = "🟢 최적" if _cur_ms >= 85 else "🟢 양호" if _cur_ms >= 70 else "🟡 보통" if _cur_ms >= 50 else "🟠 주의" if _cur_ms >= 30 else "🔴 위험"
+            st.metric("🇰🇷 KOSPI", f"{_cur_ms}",
+                      f"{_ms_level} | 기울기 {_ms_kr.iloc[-1]['기울기']:+.1f}%")
+    with _ms_col2:
+        if not _ms_us.empty:
+            _cur_ms_us = _ms_us.iloc[-1]["시장점수"]
+            _ms_level_us = "🟢 최적" if _cur_ms_us >= 85 else "🟢 양호" if _cur_ms_us >= 70 else "🟡 보통" if _cur_ms_us >= 50 else "🟠 주의" if _cur_ms_us >= 30 else "🔴 위험"
+            st.metric("🇺🇸 S&P500", f"{_cur_ms_us}",
+                      f"{_ms_level_us} | 기울기 {_ms_us.iloc[-1]['기울기']:+.1f}%")
+
+    # 시장점수 트렌드 차트
+    _ms_fig = _go.Figure()
+    if not _ms_kr.empty:
+        _ms_fig.add_trace(_go.Scatter(
+            x=_ms_kr["날짜"], y=_ms_kr["시장점수"],
+            mode="lines", name="KOSPI",
+            line=dict(color="#D92B2B", width=2, shape="spline", smoothing=1.0),
+        ))
+    if not _ms_us.empty:
+        _ms_fig.add_trace(_go.Scatter(
+            x=_ms_us["날짜"], y=_ms_us["시장점수"],
+            mode="lines", name="S&P500",
+            line=dict(color="#1A5ECC", width=2, shape="spline", smoothing=1.0),
+        ))
+    _ms_fig.add_hline(y=85, line_dash="dot", line_color="#27AE60", line_width=1,
+                      annotation_text="최적(85)", annotation_font_color="#27AE60")
+    _ms_fig.add_hline(y=50, line_dash="dash", line_color="#888", line_width=1,
+                      annotation_text="보통(50)", annotation_font_color="#888")
+    _ms_fig.add_hline(y=30, line_dash="dot", line_color="#E74C3C", line_width=1,
+                      annotation_text="위험(30)", annotation_font_color="#E74C3C")
+    _ms_fig.update_layout(
+        paper_bgcolor="#1a1a2e", plot_bgcolor="#1a1a2e",
+        xaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)"),
+        yaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)", title="시장점수", range=[0, 105]),
+        font=dict(color="#AAA"), height=250, margin=dict(l=50, r=20, t=10, b=30),
+        legend=dict(orientation="h", x=0, y=1.1),
+    )
+    st.plotly_chart(_ms_fig, use_container_width=True)
+
     st.divider()
 
     # ── 2) 포트폴리오 요약 ──────────────────────────────────
