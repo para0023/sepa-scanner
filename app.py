@@ -4060,6 +4060,7 @@ def show_portfolio():
     # ── 위험관리 ─────────────────────────────
     with tab_risk:
         st.subheader("OTI (과매매지수)")
+        _oti_color = {"🟢": "normal", "🟡": "normal", "🟠": "inverse", "🔴": "inverse"}
         _r_oti_col1, _r_oti_col2 = st.columns(2)
         with _r_oti_col1:
             set_portfolio_file("portfolio.json")
