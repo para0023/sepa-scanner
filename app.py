@@ -2197,13 +2197,33 @@ def show_universe():
 
     # ── 52주 신고가 ──
     with main_tab2:
+        if st.button("🔄 강제 재스캔", key="rescan_52h", help="52주 신고가 전체 재스캔 (새 캐시로 덮어쓰기)"):
+            for m in ("KOSPI", "KOSDAQ"):
+                st.session_state[f"_force_52h_{m}"] = True
+                st.session_state.pop(f"universe_52h_{m}", None)
+            st.rerun()
+
         tab_h_kospi, tab_h_kosdaq = st.tabs(["🇰🇷 KOSPI", "🇰🇷 KOSDAQ"])
         for tab, market in [(tab_h_kospi, "KOSPI"), (tab_h_kosdaq, "KOSDAQ")]:
             with tab:
                 _high_key = f"universe_52h_{market}"
                 _high_cache_time = get_52w_high_cache_info(market)
+                _force_52h = st.session_state.get(f"_force_52h_{market}", False)
 
-                if _high_key not in st.session_state:
+                if _force_52h:
+                    st.session_state.pop(f"_force_52h_{market}", None)
+                    status = st.empty()
+                    bar = st.progress(0)
+                    status.info(f"⏳ {market} 52주 신고가 강제 재스캔 중...")
+                    def _cb_52h(done, total):
+                        pct = int(done / total * 100)
+                        bar.progress(pct)
+                        status.info(f"⏳ {market} 스캔 중... {done}/{total} ({pct}%)")
+                    df_high = scan_52w_high(market=market, use_cache=False, progress_cb=_cb_52h)
+                    st.session_state[_high_key] = df_high
+                    bar.empty()
+                    status.empty()
+                elif _high_key not in st.session_state:
                     if _high_cache_time:
                         df_high = scan_52w_high(market=market, use_cache=True)
                         st.session_state[_high_key] = df_high
