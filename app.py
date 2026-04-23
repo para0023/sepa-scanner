@@ -1139,75 +1139,18 @@ def show_dashboard():
 
     st.divider()
 
-    # ── OTI (과매매 지수) ──────────────────────────────────
-    st.subheader("OTI (과매매지수)")
-    _oti_col1, _oti_col2 = st.columns([1, 1])
-    _oti_color = {"🟢": "normal", "🟡": "normal", "🟠": "inverse", "🔴": "inverse"}
-    with _oti_col1:
-        set_portfolio_file("portfolio.json")
-        _oti_kr = calc_oti(days=3)
-        st.metric("🇰🇷 한국", f"{_oti_kr['oti']}",
-                  f"{_oti_kr['level']} | 3일내 {_oti_kr['count']}종목 청산",
-                  delta_color=_oti_color.get(_oti_kr["level"][:2], "normal"))
-        if _oti_kr["oti"] >= 500:
-            st.error("⛔ WALK AWAY — 거래를 멈추고 관찰하세요.")
-        elif _oti_kr["oti"] >= 200:
-            st.warning("⚠️ 매매 속도를 줄이세요.")
-    with _oti_col2:
-        set_portfolio_file("portfolio_us.json")
-        _oti_us = calc_oti(days=3)
-        st.metric("🇺🇸 미국", f"{_oti_us['oti']}",
-                  f"{_oti_us['level']} | 3일내 {_oti_us['count']}종목 청산",
-                  delta_color=_oti_color.get(_oti_us["level"][:2], "normal"))
-        if _oti_us["oti"] >= 500:
-            st.error("⛔ WALK AWAY — 거래를 멈추고 관찰하세요.")
-        elif _oti_us["oti"] >= 200:
-            st.warning("⚠️ 매매 속도를 줄이세요.")
-
-    # OTI 트렌드 차트
+    # ── 위험 관리 지표 요약 (숫자만) ──────────────────────────
     import plotly.graph_objects as _go
     set_portfolio_file("portfolio.json")
-    _oti_hist_kr = calc_oti_history(days=3, lookback=60)
+    _oti_kr = calc_oti(days=3)
     set_portfolio_file("portfolio_us.json")
-    _oti_hist_us = calc_oti_history(days=3, lookback=60)
+    _oti_us = calc_oti(days=3)
     set_portfolio_file("portfolio.json")
 
-    _oti_fig = _go.Figure()
-    if not _oti_hist_kr.empty:
-        _oti_fig.add_trace(_go.Scatter(
-            x=_oti_hist_kr["날짜"], y=_oti_hist_kr["OTI"],
-            mode="lines", name="한국",
-            line=dict(color="#D92B2B", width=2, shape="spline", smoothing=1.0),
-        ))
-    if not _oti_hist_us.empty:
-        _oti_fig.add_trace(_go.Scatter(
-            x=_oti_hist_us["날짜"], y=_oti_hist_us["OTI"],
-            mode="lines", name="미국",
-            line=dict(color="#1A5ECC", width=2, shape="spline", smoothing=1.0),
-        ))
-    # 기준선
-    _oti_fig.add_hline(y=100, line_dash="dash", line_color="#888", line_width=1,
-                       annotation_text="정상(100)", annotation_font_color="#888")
-    _oti_fig.add_hline(y=200, line_dash="dot", line_color="#F39C12", line_width=1,
-                       annotation_text="주의(200)", annotation_font_color="#F39C12")
-    _oti_fig.add_hline(y=500, line_dash="dot", line_color="#E74C3C", line_width=1,
-                       annotation_text="WALK AWAY(500)", annotation_font_color="#E74C3C")
-    _oti_fig.update_layout(
-        paper_bgcolor="#1a1a2e", plot_bgcolor="#1a1a2e",
-        xaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)"),
-        yaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)", title="OTI"),
-        font=dict(color="#AAA"), height=250, margin=dict(l=50, r=20, t=10, b=30),
-        legend=dict(orientation="h", x=0, y=1.1),
-    )
-    st.plotly_chart(_oti_fig, use_container_width=True)
-
-    # ── 시장 추세 점수 ──────────────────────────────────
-    st.subheader("시장 추세 점수")
+    _oti_color = {"🟢": "normal", "🟡": "normal", "🟠": "inverse", "🔴": "inverse"}
 
     @st.cache_data(ttl=3600)
     def _calc_market_score(index_code, lookback=90):
-        """시장 추세 점수 계산 (기울기50% + MA20위치30% + 저점추이20%)"""
-        import numpy as _np
         _end = datetime.now()
         _start = _end - timedelta(days=lookback + 60)
         _df = fdr.DataReader(index_code, _start, _end)
@@ -1221,7 +1164,6 @@ def show_dashboard():
         _vol_ratio = _volume / _vol_ma60
         _rolling_low = _close.rolling(20).min()
         _low_rising = _rolling_low > _rolling_low.shift(10)
-
         def _s_score(s):
             if s <= -3: return 0
             elif s <= -1: return 30
@@ -1229,19 +1171,11 @@ def show_dashboard():
             elif s <= 1: return 70
             elif s <= 3: return 80
             else: return 100
-
         def _p_score(above, vr):
             if above: return 100
             elif vr <= 1.0: return 50
             else: return 20
-
-        result = pd.DataFrame({
-            "날짜": _df.index,
-            "종가": _close,
-            "MA20": _ma20,
-            "기울기": _slope,
-        }).dropna()
-
+        result = pd.DataFrame({"날짜": _df.index, "종가": _close, "MA20": _ma20, "기울기": _slope}).dropna()
         result["기울기점수"] = result["기울기"].apply(_s_score)
         result["위치점수"] = [_p_score(
             bool(_close.loc[i] > _ma20.loc[i]) if i in _close.index and i in _ma20.index else False,
@@ -1249,151 +1183,33 @@ def show_dashboard():
         ) for i in result.index]
         result["저점점수"] = [100 if (i in _low_rising.index and bool(_low_rising.loc[i])) else 30 for i in result.index]
         result["시장점수"] = (result["기울기점수"] * 0.5 + result["위치점수"] * 0.3 + result["저점점수"] * 0.2).round(0).astype(int)
-
         return result.tail(lookback)
 
     _ms_kr = _calc_market_score("KS11")
     _ms_us = _calc_market_score("^GSPC")
 
-    _ms_col1, _ms_col2 = st.columns(2)
-    with _ms_col1:
-        if not _ms_kr.empty:
-            _cur_ms = _ms_kr.iloc[-1]["시장점수"]
-            _ms_level = "🟢 최적" if _cur_ms >= 85 else "🟢 양호" if _cur_ms >= 70 else "🟡 보통" if _cur_ms >= 50 else "🟠 주의" if _cur_ms >= 30 else "🔴 위험"
-            st.metric("🇰🇷 KOSPI", f"{_cur_ms}",
-                      f"{_ms_level} | 기울기 {_ms_kr.iloc[-1]['기울기']:+.1f}%")
-    with _ms_col2:
-        if not _ms_us.empty:
-            _cur_ms_us = _ms_us.iloc[-1]["시장점수"]
-            _ms_level_us = "🟢 최적" if _cur_ms_us >= 85 else "🟢 양호" if _cur_ms_us >= 70 else "🟡 보통" if _cur_ms_us >= 50 else "🟠 주의" if _cur_ms_us >= 30 else "🔴 위험"
-            st.metric("🇺🇸 S&P500", f"{_cur_ms_us}",
-                      f"{_ms_level_us} | 기울기 {_ms_us.iloc[-1]['기울기']:+.1f}%")
-
-    # 익스포져 시계열 계산
-    def _calc_exposure_history(portfolio_file, lookback=90):
-        """일별 익스포져(%) 시계열"""
-        set_portfolio_file(portfolio_file)
-        capital = get_total_capital()
-        if capital <= 0:
-            return pd.DataFrame(), 0
-
-        from portfolio import _load
-        data = _load()
-        _end = datetime.now()
-        _start = _end - timedelta(days=lookback)
-
-        records = []
-        cur = _start
-        while cur <= _end:
-            d_str = cur.strftime("%Y-%m-%d")
-            invested = 0
-            for pos in data["positions"]:
-                buys = [t for t in pos["trades"] if t["type"] == "buy" and t["date"] <= d_str]
-                sells = [t for t in pos["trades"] if t["type"] == "sell" and t["date"] <= d_str]
-                buy_qty = sum(t["quantity"] for t in buys)
-                sell_qty = sum(t["quantity"] for t in sells)
-                hold_qty = buy_qty - sell_qty
-                if hold_qty > 0:
-                    avg_buy = sum(t["price"] * t["quantity"] for t in buys) / buy_qty if buy_qty > 0 else 0
-                    invested += avg_buy * hold_qty
-            exposure = round(invested / capital * 100, 1)
-            records.append({"날짜": pd.to_datetime(d_str), "익스포져": min(exposure, 100)})
-            cur += timedelta(days=1)
-
-        df = pd.DataFrame(records)
-        cur_exposure = df.iloc[-1]["익스포져"] if not df.empty else 0
-        return df, round(cur_exposure, 1)
-
-    _kr_exp_hist, _kr_exposure = _calc_exposure_history("portfolio.json")
-    _us_exp_hist, _us_exposure = _calc_exposure_history("portfolio_us.json")
-    set_portfolio_file("portfolio.json")
-
-    # 추세 순응 판정
-    def _trend_alignment(score, exposure):
-        if score >= 70 and exposure >= 60:
-            return "✅ 추세 순응"
-        elif score >= 70 and exposure < 30:
-            return "⚠️ 기회 미활용"
-        elif score < 30 and exposure < 30:
-            return "✅ 추세 순응 (관망)"
-        elif score < 30 and exposure >= 60:
-            return "🔴 추세 역행"
-        elif score < 50 and exposure >= 60:
-            return "🟠 주의"
-        else:
-            return "🟡 보통"
-
-    # 한국 시장
-    _ms_col_kr1, _ms_col_kr2 = st.columns(2)
-    with _ms_col_kr1:
+    _rc1, _rc2, _rc3, _rc4 = st.columns(4)
+    with _rc1:
+        st.metric("🇰🇷 OTI", f"{_oti_kr['oti']}", _oti_kr['level'],
+                  delta_color=_oti_color.get(_oti_kr["level"][:2], "normal"))
+    with _rc2:
         if not _ms_kr.empty:
             _cur_ms = int(_ms_kr.iloc[-1]["시장점수"])
-            _ms_level = "🟢 최적" if _cur_ms >= 85 else "🟢 양호" if _cur_ms >= 70 else "🟡 보통" if _cur_ms >= 50 else "🟠 주의" if _cur_ms >= 30 else "🔴 위험"
-            st.metric("🇰🇷 시장점수", f"{_cur_ms}", f"{_ms_level} | 기울기 {_ms_kr.iloc[-1]['기울기']:+.1f}%")
-    with _ms_col_kr2:
-        _kr_align = _trend_alignment(int(_ms_kr.iloc[-1]["시장점수"]) if not _ms_kr.empty else 50, _kr_exposure)
-        st.metric("🇰🇷 익스포져", f"{_kr_exposure}%", _kr_align)
-
-    # 한국 차트
-    _ms_fig_kr = _go.Figure()
-    if not _ms_kr.empty:
-        _ms_fig_kr.add_trace(_go.Scatter(
-            x=_ms_kr["날짜"], y=_ms_kr["시장점수"],
-            mode="lines", name="시장점수",
-            line=dict(color="#D92B2B", width=2, shape="spline", smoothing=1.0),
-        ))
-    if not _kr_exp_hist.empty:
-        _ms_fig_kr.add_trace(_go.Scatter(
-            x=_kr_exp_hist["날짜"], y=_kr_exp_hist["익스포져"],
-            mode="lines", name="익스포져",
-            line=dict(color="#27AE60", width=2, shape="spline", smoothing=1.0),
-        ))
-    _ms_fig_kr.add_hline(y=85, line_dash="dot", line_color="#444", line_width=1)
-    _ms_fig_kr.add_hline(y=30, line_dash="dot", line_color="#444", line_width=1)
-    _ms_fig_kr.update_layout(
-        paper_bgcolor="#1a1a2e", plot_bgcolor="#1a1a2e",
-        xaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)"),
-        yaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)", title="🇰🇷 시장점수 vs 익스포져", range=[0, 105]),
-        font=dict(color="#AAA"), height=200, margin=dict(l=50, r=20, t=10, b=30),
-        legend=dict(orientation="h", x=0, y=1.1),
-    )
-    st.plotly_chart(_ms_fig_kr, use_container_width=True)
-
-    # 미국 시장
-    _ms_col_us1, _ms_col_us2 = st.columns(2)
-    with _ms_col_us1:
+            _ms_lv = "🟢 최적" if _cur_ms >= 85 else "🟢 양호" if _cur_ms >= 70 else "🟡 보통" if _cur_ms >= 50 else "🟠 주의" if _cur_ms >= 30 else "🔴 위험"
+            st.metric("🇰🇷 시장", f"{_cur_ms}", _ms_lv)
+    with _rc3:
+        st.metric("🇺🇸 OTI", f"{_oti_us['oti']}", _oti_us['level'],
+                  delta_color=_oti_color.get(_oti_us["level"][:2], "normal"))
+    with _rc4:
         if not _ms_us.empty:
             _cur_ms_us = int(_ms_us.iloc[-1]["시장점수"])
-            _ms_level_us = "🟢 최적" if _cur_ms_us >= 85 else "🟢 양호" if _cur_ms_us >= 70 else "🟡 보통" if _cur_ms_us >= 50 else "🟠 주의" if _cur_ms_us >= 30 else "🔴 위험"
-            st.metric("🇺🇸 시장점수", f"{_cur_ms_us}", f"{_ms_level_us} | 기울기 {_ms_us.iloc[-1]['기울기']:+.1f}%")
-    with _ms_col_us2:
-        _us_align = _trend_alignment(int(_ms_us.iloc[-1]["시장점수"]) if not _ms_us.empty else 50, _us_exposure)
-        st.metric("🇺🇸 익스포져", f"{_us_exposure}%", _us_align)
+            _ms_lv_us = "🟢 최적" if _cur_ms_us >= 85 else "🟢 양호" if _cur_ms_us >= 70 else "🟡 보통" if _cur_ms_us >= 50 else "🟠 주의" if _cur_ms_us >= 30 else "🔴 위험"
+            st.metric("🇺🇸 시장", f"{_cur_ms_us}", _ms_lv_us)
 
-    # 미국 차트
-    _ms_fig_us = _go.Figure()
-    if not _ms_us.empty:
-        _ms_fig_us.add_trace(_go.Scatter(
-            x=_ms_us["날짜"], y=_ms_us["시장점수"],
-            mode="lines", name="시장점수",
-            line=dict(color="#1A5ECC", width=2, shape="spline", smoothing=1.0),
-        ))
-    if not _us_exp_hist.empty:
-        _ms_fig_us.add_trace(_go.Scatter(
-            x=_us_exp_hist["날짜"], y=_us_exp_hist["익스포져"],
-            mode="lines", name="익스포져",
-            line=dict(color="#27AE60", width=2, shape="spline", smoothing=1.0),
-        ))
-    _ms_fig_us.add_hline(y=85, line_dash="dot", line_color="#444", line_width=1)
-    _ms_fig_us.add_hline(y=30, line_dash="dot", line_color="#444", line_width=1)
-    _ms_fig_us.update_layout(
-        paper_bgcolor="#1a1a2e", plot_bgcolor="#1a1a2e",
-        xaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)"),
-        yaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)", title="🇺🇸 시장점수 vs 익스포져", range=[0, 105]),
-        font=dict(color="#AAA"), height=200, margin=dict(l=50, r=20, t=10, b=30),
-        legend=dict(orientation="h", x=0, y=1.1),
-    )
-    st.plotly_chart(_ms_fig_us, use_container_width=True)
+    if _oti_kr["oti"] >= 500 or _oti_us["oti"] >= 500:
+        st.error("⛔ WALK AWAY — 거래를 멈추고 관찰하세요.")
+    elif _oti_kr["oti"] >= 200 or _oti_us["oti"] >= 200:
+        st.warning("⚠️ 매매 속도를 줄이세요.")
 
     st.divider()
 
@@ -3868,7 +3684,7 @@ def show_portfolio():
         return
 
     set_portfolio_file("portfolio.json")
-    tab_hold, tab_pnl, tab_perf, tab_weekly, tab_review, tab_journal, tab_balance, tab_log = st.tabs(["📋 보유 현황", "📊 거래별 성과분석", "📊 종목별 성과분석", "📊 주간 리뷰", "📅 월별 리뷰", "📝 매매 일지", "💰 잔액관리", "📜 거래 이력"])
+    tab_hold, tab_risk, tab_pnl, tab_perf, tab_weekly, tab_review, tab_journal, tab_balance, tab_log = st.tabs(["📋 보유 현황", "🛡️ 위험관리", "📊 거래별 성과분석", "📊 종목별 성과분석", "📊 주간 리뷰", "📅 월별 리뷰", "📝 매매 일지", "💰 잔액관리", "📜 거래 이력"])
 
     # ── 보유 현황 ─────────────────────────────
     with tab_hold:
@@ -4240,6 +4056,157 @@ def show_portfolio():
                     st.info("이력이 없습니다.")
                 else:
                     _aggrid(df_hist, key="stop_loss_history", height=250, click_nav=False)
+
+    # ── 위험관리 ─────────────────────────────
+    with tab_risk:
+        st.subheader("OTI (과매매지수)")
+        _r_oti_col1, _r_oti_col2 = st.columns(2)
+        with _r_oti_col1:
+            set_portfolio_file("portfolio.json")
+            _r_oti_kr = calc_oti(days=3)
+            st.metric("🇰🇷 OTI", f"{_r_oti_kr['oti']}", f"{_r_oti_kr['level']} | 3일내 {_r_oti_kr['count']}종목",
+                      delta_color=_oti_color.get(_r_oti_kr["level"][:2], "normal"))
+            if _r_oti_kr["details"]:
+                for d in _r_oti_kr["details"]:
+                    st.caption(f"  · {d['종목명']} ({d['보유일']}일, {d['수익률']:+.2f}%)")
+        with _r_oti_col2:
+            set_portfolio_file("portfolio_us.json")
+            _r_oti_us = calc_oti(days=3)
+            st.metric("🇺🇸 OTI", f"{_r_oti_us['oti']}", f"{_r_oti_us['level']} | 3일내 {_r_oti_us['count']}종목",
+                      delta_color=_oti_color.get(_r_oti_us["level"][:2], "normal"))
+            if _r_oti_us["details"]:
+                for d in _r_oti_us["details"]:
+                    st.caption(f"  · {d['종목명']} ({d['보유일']}일, {d['수익률']:+.2f}%)")
+        set_portfolio_file("portfolio.json")
+
+        # OTI 트렌드
+        set_portfolio_file("portfolio.json")
+        _r_oti_hist_kr = calc_oti_history(days=3, lookback=60)
+        set_portfolio_file("portfolio_us.json")
+        _r_oti_hist_us = calc_oti_history(days=3, lookback=60)
+        set_portfolio_file("portfolio.json")
+
+        _r_oti_fig = _go.Figure()
+        if not _r_oti_hist_kr.empty:
+            _r_oti_fig.add_trace(_go.Scatter(x=_r_oti_hist_kr["날짜"], y=_r_oti_hist_kr["OTI"], mode="lines", name="한국",
+                                             line=dict(color="#D92B2B", width=2, shape="spline", smoothing=1.0)))
+        if not _r_oti_hist_us.empty:
+            _r_oti_fig.add_trace(_go.Scatter(x=_r_oti_hist_us["날짜"], y=_r_oti_hist_us["OTI"], mode="lines", name="미국",
+                                             line=dict(color="#1A5ECC", width=2, shape="spline", smoothing=1.0)))
+        _r_oti_fig.add_hline(y=100, line_dash="dash", line_color="#888", line_width=1, annotation_text="정상(100)", annotation_font_color="#888")
+        _r_oti_fig.add_hline(y=200, line_dash="dot", line_color="#F39C12", line_width=1, annotation_text="주의(200)", annotation_font_color="#F39C12")
+        _r_oti_fig.add_hline(y=500, line_dash="dot", line_color="#E74C3C", line_width=1, annotation_text="WALK AWAY(500)", annotation_font_color="#E74C3C")
+        _r_oti_fig.update_layout(paper_bgcolor="#1a1a2e", plot_bgcolor="#1a1a2e",
+            xaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)"),
+            yaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)", title="OTI"),
+            font=dict(color="#AAA"), height=250, margin=dict(l=50, r=20, t=10, b=30),
+            legend=dict(orientation="h", x=0, y=1.1))
+        st.plotly_chart(_r_oti_fig, use_container_width=True)
+
+        st.divider()
+
+        # 시장점수 vs 익스포져
+        st.subheader("시장 추세 vs 익스포져")
+
+        def _calc_exposure_history(portfolio_file, lookback=90):
+            set_portfolio_file(portfolio_file)
+            capital = get_total_capital()
+            if capital <= 0:
+                return pd.DataFrame(), 0
+            from portfolio import _load
+            data = _load()
+            _end = datetime.now()
+            _start = _end - timedelta(days=lookback)
+            records = []
+            cur = _start
+            while cur <= _end:
+                d_str = cur.strftime("%Y-%m-%d")
+                invested = 0
+                for pos in data["positions"]:
+                    buys = [t for t in pos["trades"] if t["type"] == "buy" and t["date"] <= d_str]
+                    sells = [t for t in pos["trades"] if t["type"] == "sell" and t["date"] <= d_str]
+                    buy_qty = sum(t["quantity"] for t in buys)
+                    sell_qty = sum(t["quantity"] for t in sells)
+                    hold_qty = buy_qty - sell_qty
+                    if hold_qty > 0:
+                        avg_buy = sum(t["price"] * t["quantity"] for t in buys) / buy_qty if buy_qty > 0 else 0
+                        invested += avg_buy * hold_qty
+                exposure = round(invested / capital * 100, 1)
+                records.append({"날짜": pd.to_datetime(d_str), "익스포져": min(exposure, 100)})
+                cur += timedelta(days=1)
+            df = pd.DataFrame(records)
+            cur_exp = df.iloc[-1]["익스포져"] if not df.empty else 0
+            return df, round(cur_exp, 1)
+
+        def _trend_alignment(score, exposure):
+            if score >= 70 and exposure >= 60: return "✅ 추세 순응"
+            elif score >= 70 and exposure < 30: return "⚠️ 기회 미활용"
+            elif score < 30 and exposure < 30: return "✅ 추세 순응 (관망)"
+            elif score < 30 and exposure >= 60: return "🔴 추세 역행"
+            elif score < 50 and exposure >= 60: return "🟠 주의"
+            else: return "🟡 보통"
+
+        _r_kr_exp_hist, _r_kr_exp = _calc_exposure_history("portfolio.json")
+        _r_us_exp_hist, _r_us_exp = _calc_exposure_history("portfolio_us.json")
+        set_portfolio_file("portfolio.json")
+
+        # 한국
+        st.markdown("**🇰🇷 한국**")
+        _rk1, _rk2 = st.columns(2)
+        with _rk1:
+            if not _ms_kr.empty:
+                _rk_ms = int(_ms_kr.iloc[-1]["시장점수"])
+                _rk_lv = "🟢 최적" if _rk_ms >= 85 else "🟢 양호" if _rk_ms >= 70 else "🟡 보통" if _rk_ms >= 50 else "🟠 주의" if _rk_ms >= 30 else "🔴 위험"
+                st.metric("시장점수", f"{_rk_ms}", f"{_rk_lv} | 기울기 {_ms_kr.iloc[-1]['기울기']:+.1f}%")
+        with _rk2:
+            _rk_align = _trend_alignment(int(_ms_kr.iloc[-1]["시장점수"]) if not _ms_kr.empty else 50, _r_kr_exp)
+            st.metric("익스포져", f"{_r_kr_exp}%", _rk_align)
+
+        _rk_fig = _go.Figure()
+        if not _ms_kr.empty:
+            _rk_fig.add_trace(_go.Scatter(x=_ms_kr["날짜"], y=_ms_kr["시장점수"], mode="lines", name="시장점수",
+                                          line=dict(color="#D92B2B", width=2, shape="spline", smoothing=1.0)))
+        if not _r_kr_exp_hist.empty:
+            _rk_fig.add_trace(_go.Scatter(x=_r_kr_exp_hist["날짜"], y=_r_kr_exp_hist["익스포져"], mode="lines", name="익스포져",
+                                          line=dict(color="#27AE60", width=2, shape="spline", smoothing=1.0)))
+        _rk_fig.add_hline(y=85, line_dash="dot", line_color="#444", line_width=1)
+        _rk_fig.add_hline(y=30, line_dash="dot", line_color="#444", line_width=1)
+        _rk_fig.update_layout(paper_bgcolor="#1a1a2e", plot_bgcolor="#1a1a2e",
+            xaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)"),
+            yaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)", title="점수 / 익스포져(%)", range=[0, 105]),
+            font=dict(color="#AAA"), height=250, margin=dict(l=50, r=20, t=10, b=30),
+            legend=dict(orientation="h", x=0, y=1.1))
+        st.plotly_chart(_rk_fig, use_container_width=True)
+
+        st.divider()
+
+        # 미국
+        st.markdown("**🇺🇸 미국**")
+        _ru1, _ru2 = st.columns(2)
+        with _ru1:
+            if not _ms_us.empty:
+                _ru_ms = int(_ms_us.iloc[-1]["시장점수"])
+                _ru_lv = "🟢 최적" if _ru_ms >= 85 else "🟢 양호" if _ru_ms >= 70 else "🟡 보통" if _ru_ms >= 50 else "🟠 주의" if _ru_ms >= 30 else "🔴 위험"
+                st.metric("시장점수", f"{_ru_ms}", f"{_ru_lv} | 기울기 {_ms_us.iloc[-1]['기울기']:+.1f}%")
+        with _ru2:
+            _ru_align = _trend_alignment(int(_ms_us.iloc[-1]["시장점수"]) if not _ms_us.empty else 50, _r_us_exp)
+            st.metric("익스포져", f"{_r_us_exp}%", _ru_align)
+
+        _ru_fig = _go.Figure()
+        if not _ms_us.empty:
+            _ru_fig.add_trace(_go.Scatter(x=_ms_us["날짜"], y=_ms_us["시장점수"], mode="lines", name="시장점수",
+                                          line=dict(color="#1A5ECC", width=2, shape="spline", smoothing=1.0)))
+        if not _r_us_exp_hist.empty:
+            _ru_fig.add_trace(_go.Scatter(x=_r_us_exp_hist["날짜"], y=_r_us_exp_hist["익스포져"], mode="lines", name="익스포져",
+                                          line=dict(color="#27AE60", width=2, shape="spline", smoothing=1.0)))
+        _ru_fig.add_hline(y=85, line_dash="dot", line_color="#444", line_width=1)
+        _ru_fig.add_hline(y=30, line_dash="dot", line_color="#444", line_width=1)
+        _ru_fig.update_layout(paper_bgcolor="#1a1a2e", plot_bgcolor="#1a1a2e",
+            xaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)"),
+            yaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)", title="점수 / 익스포져(%)", range=[0, 105]),
+            font=dict(color="#AAA"), height=250, margin=dict(l=50, r=20, t=10, b=30),
+            legend=dict(orientation="h", x=0, y=1.1))
+        st.plotly_chart(_ru_fig, use_container_width=True)
 
     # ── 거래별 성과분석 ────────────────────────
     with tab_pnl:
