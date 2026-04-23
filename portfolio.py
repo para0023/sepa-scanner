@@ -701,6 +701,98 @@ def calc_oti_history(days: int = 3, lookback: int = 60) -> pd.DataFrame:
     return df
 
 
+def calc_exposure_history(lookback: int = 90) -> pd.DataFrame:
+    """
+    일별 익스포져(%) 시계열 — 평가액(종가) 기준, 파일 캐시.
+    캐시 파일: cache/exposure_history_{portfolio_file}.json
+    """
+    import FinanceDataReader as _fdr
+    _pf = _current_file.name if hasattr(_current_file, 'name') else str(_current_file)
+    _cache_file = Path(__file__).parent / "cache" / f"exposure_history_{Path(_pf).stem}.json"
+    capital = get_total_capital()
+    if capital <= 0:
+        return pd.DataFrame()
+
+    # 캐시 로드
+    cached = {}
+    if _cache_file.exists():
+        try:
+            with open(_cache_file, "r") as f:
+                cached = json.load(f)
+        except:
+            cached = {}
+
+    data = _load()
+    _end = datetime.now()
+    _start = _end - timedelta(days=lookback)
+
+    # 보유 종목 티커 모음 (전체 기간)
+    all_tickers = set()
+    for pos in data["positions"]:
+        for t in pos["trades"]:
+            if t["type"] == "buy":
+                all_tickers.add(pos["ticker"])
+
+    # 종가 데이터 일괄 조회 (캐시 안 된 종목만)
+    price_cache = {}
+    for ticker in all_tickers:
+        try:
+            _pdf = _fdr.DataReader(ticker, _start.strftime("%Y-%m-%d"), _end.strftime("%Y-%m-%d"))
+            if _pdf is not None and not _pdf.empty:
+                price_cache[ticker] = {d.strftime("%Y-%m-%d"): float(v) for d, v in _pdf["Close"].items()}
+        except:
+            pass
+
+    records = []
+    cur = _start
+    while cur <= _end:
+        d_str = cur.strftime("%Y-%m-%d")
+
+        # 캐시에 있고 오늘이 아니면 재사용
+        if d_str in cached and d_str != _end.strftime("%Y-%m-%d"):
+            records.append({"날짜": d_str, "익스포져": cached[d_str]})
+            cur += timedelta(days=1)
+            continue
+
+        invested = 0
+        cost_basis = 0
+        for pos in data["positions"]:
+            buys = [t for t in pos["trades"] if t["type"] == "buy" and t["date"] <= d_str]
+            sells = [t for t in pos["trades"] if t["type"] == "sell" and t["date"] <= d_str]
+            buy_qty = sum(t["quantity"] for t in buys)
+            sell_qty = sum(t["quantity"] for t in sells)
+            hold_qty = buy_qty - sell_qty
+            if hold_qty > 0:
+                avg_buy = sum(t["price"] * t["quantity"] for t in buys) / buy_qty if buy_qty > 0 else 0
+                cost_basis += avg_buy * hold_qty
+                # 평가액: 해당일 종가 × 보유량
+                ticker_prices = price_cache.get(pos["ticker"], {})
+                # 해당일 또는 직전 영업일 종가
+                cur_price = ticker_prices.get(d_str)
+                if cur_price is None:
+                    # 직전 영업일 fallback
+                    prev_dates = sorted([d for d in ticker_prices if d <= d_str], reverse=True)
+                    cur_price = ticker_prices[prev_dates[0]] if prev_dates else avg_buy
+                invested += cur_price * hold_qty
+
+        exposure = round(min(invested / capital * 100, 100), 1)
+        records.append({"날짜": d_str, "익스포져": exposure})
+        cached[d_str] = exposure
+        cur += timedelta(days=1)
+
+    # 캐시 저장
+    try:
+        _cache_file.parent.mkdir(exist_ok=True)
+        with open(_cache_file, "w") as f:
+            json.dump(cached, f)
+    except:
+        pass
+
+    df = pd.DataFrame(records)
+    df["날짜"] = pd.to_datetime(df["날짜"])
+    return df
+
+
 def get_open_positions() -> pd.DataFrame:
     data = _load()
     rows = []

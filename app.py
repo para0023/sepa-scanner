@@ -30,7 +30,7 @@ from relative_strength import (
 )
 from market_ranking import calc_market_ranking, get_cache_info, _cache_path, refresh_52w_high, apply_vcp_filter, apply_stage2_filter, get_filter_cache_info, scan_vcp_patterns, get_vcp_pattern_cache_info, scan_short_candidates, get_short_cache_info, scan_52w_high, get_52w_high_cache_info, INVERSE_ETF_MAP
 from backtest import run_intraday_reversal_backtest, get_backtest_cache_info, run_signal_backtest, get_signal_cache_info
-from portfolio import add_buy, add_sell, get_open_positions, get_trade_log, calculate_performance, update_stop_loss, get_stop_loss_history, get_realized_pnl, get_position_pnl, get_total_capital, set_initial_capital, add_capital_flow, get_capital_flows, delete_capital_flow, delete_trade, update_trade, get_equity_curve, get_monthly_performance, get_trades_by_ticker, set_portfolio_file, update_take_profit, get_monthly_review, get_available_weeks, get_weekly_review, has_open_position, calc_oti, calc_oti_history
+from portfolio import add_buy, add_sell, get_open_positions, get_trade_log, calculate_performance, update_stop_loss, get_stop_loss_history, get_realized_pnl, get_position_pnl, get_total_capital, set_initial_capital, add_capital_flow, get_capital_flows, delete_capital_flow, delete_trade, update_trade, get_equity_curve, get_monthly_performance, get_trades_by_ticker, set_portfolio_file, update_take_profit, get_monthly_review, get_available_weeks, get_weekly_review, has_open_position, calc_oti, calc_oti_history, calc_exposure_history
 from relative_strength import build_trade_chart_image
 from trading_journal import get_journal_dates, get_journal, save_journal, delete_journal
 from watchlist import (load_watchlists, save_watchlists, add_group, delete_group,
@@ -4108,46 +4108,34 @@ def show_portfolio():
         # 시장점수 vs 익스포져
         st.subheader("시장 추세 vs 익스포져")
 
-        def _calc_exposure_history(portfolio_file, lookback=90):
-            set_portfolio_file(portfolio_file)
-            capital = get_total_capital()
-            if capital <= 0:
-                return pd.DataFrame(), 0
-            from portfolio import _load
-            data = _load()
-            _end = datetime.now()
-            _start = _end - timedelta(days=lookback)
-            records = []
-            cur = _start
-            while cur <= _end:
-                d_str = cur.strftime("%Y-%m-%d")
-                invested = 0
-                for pos in data["positions"]:
-                    buys = [t for t in pos["trades"] if t["type"] == "buy" and t["date"] <= d_str]
-                    sells = [t for t in pos["trades"] if t["type"] == "sell" and t["date"] <= d_str]
-                    buy_qty = sum(t["quantity"] for t in buys)
-                    sell_qty = sum(t["quantity"] for t in sells)
-                    hold_qty = buy_qty - sell_qty
-                    if hold_qty > 0:
-                        avg_buy = sum(t["price"] * t["quantity"] for t in buys) / buy_qty if buy_qty > 0 else 0
-                        invested += avg_buy * hold_qty
-                exposure = round(invested / capital * 100, 1)
-                records.append({"날짜": pd.to_datetime(d_str), "익스포져": min(exposure, 100)})
-                cur += timedelta(days=1)
-            df = pd.DataFrame(records)
-            cur_exp = df.iloc[-1]["익스포져"] if not df.empty else 0
-            return df, round(cur_exp, 1)
+        # 제안 2,3,4: 9칸 매트릭스 + OTI 오버레이
+        def _trend_alignment(score, exposure, oti_val=100):
+            # 시장: 강(>=70) / 중(30~69) / 약(<30)
+            # 익스포져: 고(>=80) / 중(50~79) / 저(<50)
+            if score >= 70:
+                if exposure >= 80: label = "✅ 추세 순응"
+                elif exposure >= 50: label = "🟡 가속 필요"
+                else: label = "⚠️ 기회 미활용"
+            elif score >= 30:
+                if exposure >= 80: label = "🟠 과다 노출"
+                elif exposure >= 50: label = "🟡 중립"
+                else: label = "🟢 방어 적정"
+            else:
+                if exposure >= 80: label = "🔴 추세 역행"
+                elif exposure >= 50: label = "⚠️ 청산 미흡"
+                else: label = "✅ 관망 적정"
+            # 제안 4: OTI 오버레이
+            if oti_val >= 200 and exposure < 50:
+                label += " · ⚠️저노출 과매매"
+            return label
 
-        def _trend_alignment(score, exposure):
-            if score >= 70 and exposure >= 60: return "✅ 추세 순응"
-            elif score >= 70 and exposure < 30: return "⚠️ 기회 미활용"
-            elif score < 30 and exposure < 30: return "✅ 추세 순응 (관망)"
-            elif score < 30 and exposure >= 60: return "🔴 추세 역행"
-            elif score < 50 and exposure >= 60: return "🟠 주의"
-            else: return "🟡 보통"
-
-        _r_kr_exp_hist, _r_kr_exp = _calc_exposure_history("portfolio.json")
-        _r_us_exp_hist, _r_us_exp = _calc_exposure_history("portfolio_us.json")
+        # 평가액 기반 익스포져 (캐시)
+        set_portfolio_file("portfolio.json")
+        _r_kr_exp_hist = calc_exposure_history(lookback=90)
+        _r_kr_exp = _r_kr_exp_hist.iloc[-1]["익스포져"] if not _r_kr_exp_hist.empty else 0
+        set_portfolio_file("portfolio_us.json")
+        _r_us_exp_hist = calc_exposure_history(lookback=90)
+        _r_us_exp = _r_us_exp_hist.iloc[-1]["익스포져"] if not _r_us_exp_hist.empty else 0
         set_portfolio_file("portfolio.json")
 
         # 한국
@@ -4159,7 +4147,7 @@ def show_portfolio():
                 _rk_lv = "🟢 최적" if _rk_ms >= 85 else "🟢 양호" if _rk_ms >= 70 else "🟡 보통" if _rk_ms >= 50 else "🟠 주의" if _rk_ms >= 30 else "🔴 위험"
                 st.metric("시장점수", f"{_rk_ms}", f"{_rk_lv} | 기울기 {_ms_kr.iloc[-1]['기울기']:+.1f}%")
         with _rk2:
-            _rk_align = _trend_alignment(int(_ms_kr.iloc[-1]["시장점수"]) if not _ms_kr.empty else 50, _r_kr_exp)
+            _rk_align = _trend_alignment(int(_ms_kr.iloc[-1]["시장점수"]) if not _ms_kr.empty else 50, _r_kr_exp, _r_oti_kr["oti"])
             st.metric("익스포져", f"{_r_kr_exp}%", _rk_align)
 
         _rk_fig = _go.Figure()
@@ -4189,7 +4177,7 @@ def show_portfolio():
                 _ru_lv = "🟢 최적" if _ru_ms >= 85 else "🟢 양호" if _ru_ms >= 70 else "🟡 보통" if _ru_ms >= 50 else "🟠 주의" if _ru_ms >= 30 else "🔴 위험"
                 st.metric("시장점수", f"{_ru_ms}", f"{_ru_lv} | 기울기 {_ms_us.iloc[-1]['기울기']:+.1f}%")
         with _ru2:
-            _ru_align = _trend_alignment(int(_ms_us.iloc[-1]["시장점수"]) if not _ms_us.empty else 50, _r_us_exp)
+            _ru_align = _trend_alignment(int(_ms_us.iloc[-1]["시장점수"]) if not _ms_us.empty else 50, _r_us_exp, _r_oti_us["oti"])
             st.metric("익스포져", f"{_r_us_exp}%", _ru_align)
 
         _ru_fig = _go.Figure()
