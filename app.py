@@ -1177,13 +1177,13 @@ def show_dashboard():
         _oti_fig.add_trace(_go.Scatter(
             x=_oti_hist_kr["날짜"], y=_oti_hist_kr["OTI"],
             mode="lines", name="한국",
-            line=dict(color="#D92B2B", width=2),
+            line=dict(color="#D92B2B", width=2, shape="spline", smoothing=1.0),
         ))
     if not _oti_hist_us.empty:
         _oti_fig.add_trace(_go.Scatter(
             x=_oti_hist_us["날짜"], y=_oti_hist_us["OTI"],
             mode="lines", name="미국",
-            line=dict(color="#1A5ECC", width=2),
+            line=dict(color="#1A5ECC", width=2, shape="spline", smoothing=1.0),
         ))
     # 기준선
     _oti_fig.add_hline(y=100, line_dash="dash", line_color="#888", line_width=1,
