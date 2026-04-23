@@ -588,6 +588,72 @@ def has_open_position(ticker: str) -> bool:
     )
 
 
+def calc_oti(days: int = 3) -> dict:
+    """
+    OTI (Overtrading Index) 계산.
+    최근 N거래일 내 진입+청산이 모두 완료된 종목 수 기반.
+    OTI = (건수 / 3)²
+    """
+    data = _load()
+    today = datetime.now()
+    cutoff = (today - timedelta(days=days * 2)).strftime("%Y-%m-%d")  # 캘린더일 여유
+    today_str = today.strftime("%Y-%m-%d")
+
+    # 최근 N일 내 완전 청산된 종목 찾기
+    count = 0
+    losses = 0
+    details = []
+    for pos in data["positions"]:
+        buys = [t for t in pos["trades"] if t["type"] == "buy"]
+        sells = [t for t in pos["trades"] if t["type"] == "sell"]
+        if not buys or not sells:
+            continue
+
+        # 마지막 매수일과 마지막 매도일이 모두 최근 N일 이내
+        last_buy = max(t["date"] for t in buys)
+        last_sell = max(t["date"] for t in sells)
+
+        if last_buy >= cutoff and last_sell >= cutoff:
+            buy_dt = pd.to_datetime(last_buy)
+            sell_dt = pd.to_datetime(last_sell)
+            hold_days = (sell_dt - buy_dt).days
+            if hold_days <= days:
+                # 수익률 계산
+                avg_buy = sum(t["price"] * t["quantity"] for t in buys) / sum(t["quantity"] for t in buys)
+                avg_sell = sum(t["price"] * t["quantity"] for t in sells) / sum(t["quantity"] for t in sells)
+                pnl_pct = (avg_sell / avg_buy - 1) * 100 if avg_buy > 0 else 0
+
+                count += 1
+                if pnl_pct <= 0:
+                    losses += 1
+                details.append({
+                    "종목명": pos["name"],
+                    "보유일": hold_days,
+                    "수익률": round(pnl_pct, 2),
+                })
+
+    oti = round((count / 3) ** 2, 2)
+    loss_rate = round(losses / count * 100, 1) if count > 0 else 0
+
+    if oti < 1.0:
+        level = "🟢 정상"
+    elif oti < 2.0:
+        level = "🟡 주의"
+    elif oti < 4.0:
+        level = "🟠 경고"
+    else:
+        level = "🔴 WALK AWAY"
+
+    return {
+        "oti": oti,
+        "count": count,
+        "losses": losses,
+        "loss_rate": loss_rate,
+        "level": level,
+        "details": details,
+    }
+
+
 def get_open_positions() -> pd.DataFrame:
     data = _load()
     rows = []

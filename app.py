@@ -30,7 +30,7 @@ from relative_strength import (
 )
 from market_ranking import calc_market_ranking, get_cache_info, _cache_path, refresh_52w_high, apply_vcp_filter, apply_stage2_filter, get_filter_cache_info, scan_vcp_patterns, get_vcp_pattern_cache_info, scan_short_candidates, get_short_cache_info, scan_52w_high, get_52w_high_cache_info, INVERSE_ETF_MAP
 from backtest import run_intraday_reversal_backtest, get_backtest_cache_info, run_signal_backtest, get_signal_cache_info
-from portfolio import add_buy, add_sell, get_open_positions, get_trade_log, calculate_performance, update_stop_loss, get_stop_loss_history, get_realized_pnl, get_position_pnl, get_total_capital, set_initial_capital, add_capital_flow, get_capital_flows, delete_capital_flow, delete_trade, update_trade, get_equity_curve, get_monthly_performance, get_trades_by_ticker, set_portfolio_file, update_take_profit, get_monthly_review, get_available_weeks, get_weekly_review, has_open_position
+from portfolio import add_buy, add_sell, get_open_positions, get_trade_log, calculate_performance, update_stop_loss, get_stop_loss_history, get_realized_pnl, get_position_pnl, get_total_capital, set_initial_capital, add_capital_flow, get_capital_flows, delete_capital_flow, delete_trade, update_trade, get_equity_curve, get_monthly_performance, get_trades_by_ticker, set_portfolio_file, update_take_profit, get_monthly_review, get_available_weeks, get_weekly_review, has_open_position, calc_oti
 from relative_strength import build_trade_chart_image
 from trading_journal import get_journal_dates, get_journal, save_journal, delete_journal
 from watchlist import (load_watchlists, save_watchlists, add_group, delete_group,
@@ -1136,6 +1136,34 @@ def show_dashboard():
     if st.button("🌍 시장 지표 상세 보기 →", key="dash_to_mkt_ind"):
         st.session_state.view = "market_indicators"
         st.rerun()
+
+    st.divider()
+
+    # ── OTI (과매매 지수) ──────────────────────────────────
+    _oti_col1, _oti_col2 = st.columns([1, 1])
+    with _oti_col1:
+        set_portfolio_file("portfolio.json")
+        _oti_kr = calc_oti(days=3)
+        _oti_color = {"🟢": "normal", "🟡": "normal", "🟠": "inverse", "🔴": "inverse"}
+        _oti_c = _oti_color.get(_oti_kr["level"][:2], "normal")
+        st.metric("🇰🇷 OTI (과매매지수)", f"{_oti_kr['oti']:.1f}",
+                  f"{_oti_kr['level']} | 3일내 {_oti_kr['count']}종목 청산",
+                  delta_color=_oti_c)
+        if _oti_kr["oti"] >= 4.0:
+            st.error("⛔ WALK AWAY — 거래를 멈추고 관찰하세요.")
+        elif _oti_kr["oti"] >= 2.0:
+            st.warning("⚠️ 매매 속도를 줄이세요.")
+    with _oti_col2:
+        set_portfolio_file("portfolio_us.json")
+        _oti_us = calc_oti(days=3)
+        st.metric("🇺🇸 OTI (과매매지수)", f"{_oti_us['oti']:.1f}",
+                  f"{_oti_us['level']} | 3일내 {_oti_us['count']}종목 청산",
+                  delta_color=_oti_color.get(_oti_us["level"][:2], "normal"))
+        if _oti_us["oti"] >= 4.0:
+            st.error("⛔ WALK AWAY — 거래를 멈추고 관찰하세요.")
+        elif _oti_us["oti"] >= 2.0:
+            st.warning("⚠️ 매매 속도를 줄이세요.")
+    set_portfolio_file("portfolio.json")
 
     st.divider()
 
