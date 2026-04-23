@@ -30,7 +30,7 @@ from relative_strength import (
 )
 from market_ranking import calc_market_ranking, get_cache_info, _cache_path, refresh_52w_high, apply_vcp_filter, apply_stage2_filter, get_filter_cache_info, scan_vcp_patterns, get_vcp_pattern_cache_info, scan_short_candidates, get_short_cache_info, scan_52w_high, get_52w_high_cache_info, INVERSE_ETF_MAP
 from backtest import run_intraday_reversal_backtest, get_backtest_cache_info, run_signal_backtest, get_signal_cache_info
-from portfolio import add_buy, add_sell, get_open_positions, get_trade_log, calculate_performance, update_stop_loss, get_stop_loss_history, get_realized_pnl, get_position_pnl, get_total_capital, set_initial_capital, add_capital_flow, get_capital_flows, delete_capital_flow, delete_trade, update_trade, get_equity_curve, get_monthly_performance, get_trades_by_ticker, set_portfolio_file, update_take_profit, get_monthly_review, get_available_weeks, get_weekly_review, has_open_position, calc_oti
+from portfolio import add_buy, add_sell, get_open_positions, get_trade_log, calculate_performance, update_stop_loss, get_stop_loss_history, get_realized_pnl, get_position_pnl, get_total_capital, set_initial_capital, add_capital_flow, get_capital_flows, delete_capital_flow, delete_trade, update_trade, get_equity_curve, get_monthly_performance, get_trades_by_ticker, set_portfolio_file, update_take_profit, get_monthly_review, get_available_weeks, get_weekly_review, has_open_position, calc_oti, calc_oti_history
 from relative_strength import build_trade_chart_image
 from trading_journal import get_journal_dates, get_journal, save_journal, delete_journal
 from watchlist import (load_watchlists, save_watchlists, add_group, delete_group,
@@ -1140,30 +1140,66 @@ def show_dashboard():
     st.divider()
 
     # ── OTI (과매매 지수) ──────────────────────────────────
+    st.subheader("OTI (과매매지수)")
     _oti_col1, _oti_col2 = st.columns([1, 1])
+    _oti_color = {"🟢": "normal", "🟡": "normal", "🟠": "inverse", "🔴": "inverse"}
     with _oti_col1:
         set_portfolio_file("portfolio.json")
         _oti_kr = calc_oti(days=3)
-        _oti_color = {"🟢": "normal", "🟡": "normal", "🟠": "inverse", "🔴": "inverse"}
-        _oti_c = _oti_color.get(_oti_kr["level"][:2], "normal")
-        st.metric("🇰🇷 OTI (과매매지수)", f"{_oti_kr['oti']:.1f}",
+        st.metric("🇰🇷 한국", f"{_oti_kr['oti']}",
                   f"{_oti_kr['level']} | 3일내 {_oti_kr['count']}종목 청산",
-                  delta_color=_oti_c)
-        if _oti_kr["oti"] >= 4.0:
+                  delta_color=_oti_color.get(_oti_kr["level"][:2], "normal"))
+        if _oti_kr["oti"] >= 500:
             st.error("⛔ WALK AWAY — 거래를 멈추고 관찰하세요.")
-        elif _oti_kr["oti"] >= 2.0:
+        elif _oti_kr["oti"] >= 200:
             st.warning("⚠️ 매매 속도를 줄이세요.")
     with _oti_col2:
         set_portfolio_file("portfolio_us.json")
         _oti_us = calc_oti(days=3)
-        st.metric("🇺🇸 OTI (과매매지수)", f"{_oti_us['oti']:.1f}",
+        st.metric("🇺🇸 미국", f"{_oti_us['oti']}",
                   f"{_oti_us['level']} | 3일내 {_oti_us['count']}종목 청산",
                   delta_color=_oti_color.get(_oti_us["level"][:2], "normal"))
-        if _oti_us["oti"] >= 4.0:
+        if _oti_us["oti"] >= 500:
             st.error("⛔ WALK AWAY — 거래를 멈추고 관찰하세요.")
-        elif _oti_us["oti"] >= 2.0:
+        elif _oti_us["oti"] >= 200:
             st.warning("⚠️ 매매 속도를 줄이세요.")
+
+    # OTI 트렌드 차트
+    import plotly.graph_objects as _go
     set_portfolio_file("portfolio.json")
+    _oti_hist_kr = calc_oti_history(days=3, lookback=60)
+    set_portfolio_file("portfolio_us.json")
+    _oti_hist_us = calc_oti_history(days=3, lookback=60)
+    set_portfolio_file("portfolio.json")
+
+    _oti_fig = _go.Figure()
+    if not _oti_hist_kr.empty:
+        _oti_fig.add_trace(_go.Scatter(
+            x=_oti_hist_kr["날짜"], y=_oti_hist_kr["OTI"],
+            mode="lines", name="한국",
+            line=dict(color="#D92B2B", width=2),
+        ))
+    if not _oti_hist_us.empty:
+        _oti_fig.add_trace(_go.Scatter(
+            x=_oti_hist_us["날짜"], y=_oti_hist_us["OTI"],
+            mode="lines", name="미국",
+            line=dict(color="#1A5ECC", width=2),
+        ))
+    # 기준선
+    _oti_fig.add_hline(y=100, line_dash="dash", line_color="#888", line_width=1,
+                       annotation_text="정상(100)", annotation_font_color="#888")
+    _oti_fig.add_hline(y=200, line_dash="dot", line_color="#F39C12", line_width=1,
+                       annotation_text="주의(200)", annotation_font_color="#F39C12")
+    _oti_fig.add_hline(y=500, line_dash="dot", line_color="#E74C3C", line_width=1,
+                       annotation_text="WALK AWAY(500)", annotation_font_color="#E74C3C")
+    _oti_fig.update_layout(
+        paper_bgcolor="#1a1a2e", plot_bgcolor="#1a1a2e",
+        xaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)"),
+        yaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)", title="OTI"),
+        font=dict(color="#AAA"), height=250, margin=dict(l=50, r=20, t=10, b=30),
+        legend=dict(orientation="h", x=0, y=1.1),
+    )
+    st.plotly_chart(_oti_fig, use_container_width=True)
 
     st.divider()
 

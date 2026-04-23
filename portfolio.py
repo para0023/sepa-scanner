@@ -588,18 +588,39 @@ def has_open_position(ticker: str) -> bool:
     )
 
 
+def _oti_at_date(data, ref_date_str, days=3):
+    """특정 날짜 기준 OTI 계산 (내부용)"""
+    ref_dt = pd.to_datetime(ref_date_str)
+    cutoff_dt = ref_dt - timedelta(days=days * 2)
+    cutoff = cutoff_dt.strftime("%Y-%m-%d")
+
+    count = 0
+    for pos in data["positions"]:
+        buys = [t for t in pos["trades"] if t["type"] == "buy" and t["date"] <= ref_date_str]
+        sells = [t for t in pos["trades"] if t["type"] == "sell" and t["date"] <= ref_date_str]
+        if not buys or not sells:
+            continue
+        last_buy = max(t["date"] for t in buys)
+        last_sell = max(t["date"] for t in sells)
+        if last_buy >= cutoff and last_sell >= cutoff:
+            hold = (pd.to_datetime(last_sell) - pd.to_datetime(last_buy)).days
+            if hold <= days:
+                count += 1
+
+    return round(100 * (1 + (count / 3) ** 2))
+
+
 def calc_oti(days: int = 3) -> dict:
     """
     OTI (Overtrading Index) 계산.
     최근 N거래일 내 진입+청산이 모두 완료된 종목 수 기반.
-    OTI = (건수 / 3)²
+    OTI = 100 × (1 + (건수/3)²)  — 100이 정상, 높을수록 과매매
     """
     data = _load()
     today = datetime.now()
-    cutoff = (today - timedelta(days=days * 2)).strftime("%Y-%m-%d")  # 캘린더일 여유
+    cutoff = (today - timedelta(days=days * 2)).strftime("%Y-%m-%d")
     today_str = today.strftime("%Y-%m-%d")
 
-    # 최근 N일 내 완전 청산된 종목 찾기
     count = 0
     losses = 0
     details = []
@@ -609,7 +630,6 @@ def calc_oti(days: int = 3) -> dict:
         if not buys or not sells:
             continue
 
-        # 마지막 매수일과 마지막 매도일이 모두 최근 N일 이내
         last_buy = max(t["date"] for t in buys)
         last_sell = max(t["date"] for t in sells)
 
@@ -618,7 +638,6 @@ def calc_oti(days: int = 3) -> dict:
             sell_dt = pd.to_datetime(last_sell)
             hold_days = (sell_dt - buy_dt).days
             if hold_days <= days:
-                # 수익률 계산
                 avg_buy = sum(t["price"] * t["quantity"] for t in buys) / sum(t["quantity"] for t in buys)
                 avg_sell = sum(t["price"] * t["quantity"] for t in sells) / sum(t["quantity"] for t in sells)
                 pnl_pct = (avg_sell / avg_buy - 1) * 100 if avg_buy > 0 else 0
@@ -632,14 +651,14 @@ def calc_oti(days: int = 3) -> dict:
                     "수익률": round(pnl_pct, 2),
                 })
 
-    oti = round((count / 3) ** 2, 2)
+    oti = round(100 * (1 + (count / 3) ** 2))
     loss_rate = round(losses / count * 100, 1) if count > 0 else 0
 
-    if oti < 1.0:
+    if oti <= 100:
         level = "🟢 정상"
-    elif oti < 2.0:
+    elif oti <= 200:
         level = "🟡 주의"
-    elif oti < 4.0:
+    elif oti <= 500:
         level = "🟠 경고"
     else:
         level = "🔴 WALK AWAY"
@@ -652,6 +671,34 @@ def calc_oti(days: int = 3) -> dict:
         "level": level,
         "details": details,
     }
+
+
+def calc_oti_history(days: int = 3, lookback: int = 60) -> pd.DataFrame:
+    """OTI 시계열 데이터 (최근 lookback 캘린더일)"""
+    data = _load()
+
+    # 거래가 있는 날짜 범위
+    all_dates = set()
+    for pos in data["positions"]:
+        for t in pos["trades"]:
+            all_dates.add(t["date"])
+    if not all_dates:
+        return pd.DataFrame()
+
+    end_dt = datetime.now()
+    start_dt = end_dt - timedelta(days=lookback)
+
+    records = []
+    cur = start_dt
+    while cur <= end_dt:
+        d_str = cur.strftime("%Y-%m-%d")
+        oti_val = _oti_at_date(data, d_str, days)
+        records.append({"날짜": d_str, "OTI": oti_val})
+        cur += timedelta(days=1)
+
+    df = pd.DataFrame(records)
+    df["날짜"] = pd.to_datetime(df["날짜"])
+    return df
 
 
 def get_open_positions() -> pd.DataFrame:
