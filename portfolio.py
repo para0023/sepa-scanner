@@ -763,17 +763,9 @@ def calc_exposure_history(lookback: int = 90) -> pd.DataFrame:
             cur += timedelta(days=1)
             continue
 
-        # 해당 날짜까지 누적 실현손익 → 총자산
-        if _pnl_col and not _pnl_df.empty:
-            _cum = _pnl_df[_pnl_df["_date"] <= d_str][_pnl_col].sum()
-        else:
-            _cum = 0
-        _total_asset = capital + _cum
-        if _total_asset <= 0:
-            _total_asset = capital
-
-        invested = 0
-        cost_basis = 0
+        # 보유종목 평가액 + 매수원가 계산
+        invested = 0   # 평가액 (종가 기준)
+        cost_basis = 0  # 매수원가
         for pos in data["positions"]:
             buys = [t for t in pos["trades"] if t["type"] == "buy" and t["date"] <= d_str]
             sells = [t for t in pos["trades"] if t["type"] == "sell" and t["date"] <= d_str]
@@ -783,17 +775,25 @@ def calc_exposure_history(lookback: int = 90) -> pd.DataFrame:
             if hold_qty > 0:
                 avg_buy = sum(t["price"] * t["quantity"] for t in buys) / buy_qty if buy_qty > 0 else 0
                 cost_basis += avg_buy * hold_qty
-                # 평가액: 해당일 종가 × 보유량
                 ticker_prices = price_cache.get(pos["ticker"], {})
-                # 해당일 또는 직전 영업일 종가
                 cur_price = ticker_prices.get(d_str)
                 if cur_price is None:
-                    # 직전 영업일 fallback
                     prev_dates = sorted([d for d in ticker_prices if d <= d_str], reverse=True)
                     cur_price = ticker_prices[prev_dates[0]] if prev_dates else avg_buy
                 invested += cur_price * hold_qty
 
-        exposure = round(min(invested / _total_asset * 100, 100), 1)
+        # 총자산 = 현금 + 평가액
+        # 현금 = 원금 + 누적실현손익 - 매수원가
+        if _pnl_col and not _pnl_df.empty:
+            _cum = _pnl_df[_pnl_df["_date"] <= d_str][_pnl_col].sum()
+        else:
+            _cum = 0
+        cash = capital + _cum - cost_basis
+        total_asset = cash + invested
+        if total_asset <= 0:
+            total_asset = capital
+
+        exposure = round(min(invested / total_asset * 100, 100), 1)
         records.append({"날짜": d_str, "익스포져": exposure})
         cached[d_str] = exposure
         cur += timedelta(days=1)
