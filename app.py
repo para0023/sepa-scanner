@@ -1244,10 +1244,10 @@ def show_dashboard():
 
         result["기울기점수"] = result["기울기"].apply(_s_score)
         result["위치점수"] = [_p_score(
-            _close.iloc[i] > _ma20.iloc[i] if i < len(_close) else False,
-            _vol_ratio.iloc[i] if i < len(_vol_ratio) else 1.0
+            bool(_close.loc[i] > _ma20.loc[i]) if i in _close.index and i in _ma20.index else False,
+            float(_vol_ratio.loc[i]) if i in _vol_ratio.index else 1.0
         ) for i in result.index]
-        result["저점점수"] = [100 if _low_rising.iloc[i] else 30 for i in result.index]
+        result["저점점수"] = [100 if (i in _low_rising.index and bool(_low_rising.loc[i])) else 30 for i in result.index]
         result["시장점수"] = (result["기울기점수"] * 0.5 + result["위치점수"] * 0.3 + result["저점점수"] * 0.2).round(0).astype(int)
 
         return result.tail(lookback)
