@@ -1269,18 +1269,43 @@ def show_dashboard():
             st.metric("🇺🇸 S&P500", f"{_cur_ms_us}",
                       f"{_ms_level_us} | 기울기 {_ms_us.iloc[-1]['기울기']:+.1f}%")
 
-    # 익스포져 계산
-    set_portfolio_file("portfolio.json")
-    _kr_capital = get_total_capital()
-    _kr_pos = get_open_positions()
-    _kr_invested = (_kr_pos["평균매수가"] * _kr_pos["수량"]).sum() if not _kr_pos.empty else 0
-    _kr_exposure = round(_kr_invested / _kr_capital * 100, 1) if _kr_capital > 0 else 0
+    # 익스포져 시계열 계산
+    def _calc_exposure_history(portfolio_file, lookback=90):
+        """일별 익스포져(%) 시계열"""
+        set_portfolio_file(portfolio_file)
+        capital = get_total_capital()
+        if capital <= 0:
+            return pd.DataFrame(), 0
 
-    set_portfolio_file("portfolio_us.json")
-    _us_capital = get_total_capital()
-    _us_pos = get_open_positions()
-    _us_invested = (_us_pos["평균매수가"] * _us_pos["수량"]).sum() if not _us_pos.empty else 0
-    _us_exposure = round(_us_invested / _us_capital * 100, 1) if _us_capital > 0 else 0
+        from portfolio import _load
+        data = _load()
+        _end = datetime.now()
+        _start = _end - timedelta(days=lookback)
+
+        records = []
+        cur = _start
+        while cur <= _end:
+            d_str = cur.strftime("%Y-%m-%d")
+            invested = 0
+            for pos in data["positions"]:
+                buys = [t for t in pos["trades"] if t["type"] == "buy" and t["date"] <= d_str]
+                sells = [t for t in pos["trades"] if t["type"] == "sell" and t["date"] <= d_str]
+                buy_qty = sum(t["quantity"] for t in buys)
+                sell_qty = sum(t["quantity"] for t in sells)
+                hold_qty = buy_qty - sell_qty
+                if hold_qty > 0:
+                    avg_buy = sum(t["price"] * t["quantity"] for t in buys) / buy_qty if buy_qty > 0 else 0
+                    invested += avg_buy * hold_qty
+            exposure = round(invested / capital * 100, 1)
+            records.append({"날짜": pd.to_datetime(d_str), "익스포져": min(exposure, 100)})
+            cur += timedelta(days=1)
+
+        df = pd.DataFrame(records)
+        cur_exposure = df.iloc[-1]["익스포져"] if not df.empty else 0
+        return df, round(cur_exposure, 1)
+
+    _kr_exp_hist, _kr_exposure = _calc_exposure_history("portfolio.json")
+    _us_exp_hist, _us_exposure = _calc_exposure_history("portfolio_us.json")
     set_portfolio_file("portfolio.json")
 
     # 추세 순응 판정
@@ -1317,8 +1342,12 @@ def show_dashboard():
             mode="lines", name="시장점수",
             line=dict(color="#D92B2B", width=2, shape="spline", smoothing=1.0),
         ))
-    _ms_fig_kr.add_hline(y=_kr_exposure, line_dash="solid", line_color="#27AE60", line_width=2,
-                         annotation_text=f"익스포져 {_kr_exposure}%", annotation_font_color="#27AE60")
+    if not _kr_exp_hist.empty:
+        _ms_fig_kr.add_trace(_go.Scatter(
+            x=_kr_exp_hist["날짜"], y=_kr_exp_hist["익스포져"],
+            mode="lines", name="익스포져",
+            line=dict(color="#27AE60", width=2, shape="spline", smoothing=1.0),
+        ))
     _ms_fig_kr.add_hline(y=85, line_dash="dot", line_color="#444", line_width=1)
     _ms_fig_kr.add_hline(y=30, line_dash="dot", line_color="#444", line_width=1)
     _ms_fig_kr.update_layout(
@@ -1326,7 +1355,7 @@ def show_dashboard():
         xaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)"),
         yaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)", title="🇰🇷 시장점수 vs 익스포져", range=[0, 105]),
         font=dict(color="#AAA"), height=200, margin=dict(l=50, r=20, t=10, b=30),
-        showlegend=False,
+        legend=dict(orientation="h", x=0, y=1.1),
     )
     st.plotly_chart(_ms_fig_kr, use_container_width=True)
 
@@ -1349,8 +1378,12 @@ def show_dashboard():
             mode="lines", name="시장점수",
             line=dict(color="#1A5ECC", width=2, shape="spline", smoothing=1.0),
         ))
-    _ms_fig_us.add_hline(y=_us_exposure, line_dash="solid", line_color="#27AE60", line_width=2,
-                         annotation_text=f"익스포져 {_us_exposure}%", annotation_font_color="#27AE60")
+    if not _us_exp_hist.empty:
+        _ms_fig_us.add_trace(_go.Scatter(
+            x=_us_exp_hist["날짜"], y=_us_exp_hist["익스포져"],
+            mode="lines", name="익스포져",
+            line=dict(color="#27AE60", width=2, shape="spline", smoothing=1.0),
+        ))
     _ms_fig_us.add_hline(y=85, line_dash="dot", line_color="#444", line_width=1)
     _ms_fig_us.add_hline(y=30, line_dash="dot", line_color="#444", line_width=1)
     _ms_fig_us.update_layout(
@@ -1358,7 +1391,7 @@ def show_dashboard():
         xaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)"),
         yaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)", title="🇺🇸 시장점수 vs 익스포져", range=[0, 105]),
         font=dict(color="#AAA"), height=200, margin=dict(l=50, r=20, t=10, b=30),
-        showlegend=False,
+        legend=dict(orientation="h", x=0, y=1.1),
     )
     st.plotly_chart(_ms_fig_us, use_container_width=True)
 
