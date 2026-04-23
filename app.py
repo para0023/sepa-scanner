@@ -1269,34 +1269,98 @@ def show_dashboard():
             st.metric("🇺🇸 S&P500", f"{_cur_ms_us}",
                       f"{_ms_level_us} | 기울기 {_ms_us.iloc[-1]['기울기']:+.1f}%")
 
-    # 시장점수 트렌드 차트
-    _ms_fig = _go.Figure()
+    # 익스포져 계산
+    set_portfolio_file("portfolio.json")
+    _kr_capital = get_total_capital()
+    _kr_pos = get_open_positions()
+    _kr_invested = (_kr_pos["평균매수가"] * _kr_pos["수량"]).sum() if not _kr_pos.empty else 0
+    _kr_exposure = round(_kr_invested / _kr_capital * 100, 1) if _kr_capital > 0 else 0
+
+    set_portfolio_file("portfolio_us.json")
+    _us_capital = get_total_capital()
+    _us_pos = get_open_positions()
+    _us_invested = (_us_pos["평균매수가"] * _us_pos["수량"]).sum() if not _us_pos.empty else 0
+    _us_exposure = round(_us_invested / _us_capital * 100, 1) if _us_capital > 0 else 0
+    set_portfolio_file("portfolio.json")
+
+    # 추세 순응 판정
+    def _trend_alignment(score, exposure):
+        if score >= 70 and exposure >= 60:
+            return "✅ 추세 순응"
+        elif score >= 70 and exposure < 30:
+            return "⚠️ 기회 미활용"
+        elif score < 30 and exposure < 30:
+            return "✅ 추세 순응 (관망)"
+        elif score < 30 and exposure >= 60:
+            return "🔴 추세 역행"
+        elif score < 50 and exposure >= 60:
+            return "🟠 주의"
+        else:
+            return "🟡 보통"
+
+    # 한국 시장
+    _ms_col_kr1, _ms_col_kr2 = st.columns(2)
+    with _ms_col_kr1:
+        if not _ms_kr.empty:
+            _cur_ms = int(_ms_kr.iloc[-1]["시장점수"])
+            _ms_level = "🟢 최적" if _cur_ms >= 85 else "🟢 양호" if _cur_ms >= 70 else "🟡 보통" if _cur_ms >= 50 else "🟠 주의" if _cur_ms >= 30 else "🔴 위험"
+            st.metric("🇰🇷 시장점수", f"{_cur_ms}", f"{_ms_level} | 기울기 {_ms_kr.iloc[-1]['기울기']:+.1f}%")
+    with _ms_col_kr2:
+        _kr_align = _trend_alignment(int(_ms_kr.iloc[-1]["시장점수"]) if not _ms_kr.empty else 50, _kr_exposure)
+        st.metric("🇰🇷 익스포져", f"{_kr_exposure}%", _kr_align)
+
+    # 한국 차트
+    _ms_fig_kr = _go.Figure()
     if not _ms_kr.empty:
-        _ms_fig.add_trace(_go.Scatter(
+        _ms_fig_kr.add_trace(_go.Scatter(
             x=_ms_kr["날짜"], y=_ms_kr["시장점수"],
-            mode="lines", name="KOSPI",
+            mode="lines", name="시장점수",
             line=dict(color="#D92B2B", width=2, shape="spline", smoothing=1.0),
         ))
-    if not _ms_us.empty:
-        _ms_fig.add_trace(_go.Scatter(
-            x=_ms_us["날짜"], y=_ms_us["시장점수"],
-            mode="lines", name="S&P500",
-            line=dict(color="#1A5ECC", width=2, shape="spline", smoothing=1.0),
-        ))
-    _ms_fig.add_hline(y=85, line_dash="dot", line_color="#27AE60", line_width=1,
-                      annotation_text="최적(85)", annotation_font_color="#27AE60")
-    _ms_fig.add_hline(y=50, line_dash="dash", line_color="#888", line_width=1,
-                      annotation_text="보통(50)", annotation_font_color="#888")
-    _ms_fig.add_hline(y=30, line_dash="dot", line_color="#E74C3C", line_width=1,
-                      annotation_text="위험(30)", annotation_font_color="#E74C3C")
-    _ms_fig.update_layout(
+    _ms_fig_kr.add_hline(y=_kr_exposure, line_dash="solid", line_color="#27AE60", line_width=2,
+                         annotation_text=f"익스포져 {_kr_exposure}%", annotation_font_color="#27AE60")
+    _ms_fig_kr.add_hline(y=85, line_dash="dot", line_color="#444", line_width=1)
+    _ms_fig_kr.add_hline(y=30, line_dash="dot", line_color="#444", line_width=1)
+    _ms_fig_kr.update_layout(
         paper_bgcolor="#1a1a2e", plot_bgcolor="#1a1a2e",
         xaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)"),
-        yaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)", title="시장점수", range=[0, 105]),
-        font=dict(color="#AAA"), height=250, margin=dict(l=50, r=20, t=10, b=30),
-        legend=dict(orientation="h", x=0, y=1.1),
+        yaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)", title="🇰🇷 시장점수 vs 익스포져", range=[0, 105]),
+        font=dict(color="#AAA"), height=200, margin=dict(l=50, r=20, t=10, b=30),
+        showlegend=False,
     )
-    st.plotly_chart(_ms_fig, use_container_width=True)
+    st.plotly_chart(_ms_fig_kr, use_container_width=True)
+
+    # 미국 시장
+    _ms_col_us1, _ms_col_us2 = st.columns(2)
+    with _ms_col_us1:
+        if not _ms_us.empty:
+            _cur_ms_us = int(_ms_us.iloc[-1]["시장점수"])
+            _ms_level_us = "🟢 최적" if _cur_ms_us >= 85 else "🟢 양호" if _cur_ms_us >= 70 else "🟡 보통" if _cur_ms_us >= 50 else "🟠 주의" if _cur_ms_us >= 30 else "🔴 위험"
+            st.metric("🇺🇸 시장점수", f"{_cur_ms_us}", f"{_ms_level_us} | 기울기 {_ms_us.iloc[-1]['기울기']:+.1f}%")
+    with _ms_col_us2:
+        _us_align = _trend_alignment(int(_ms_us.iloc[-1]["시장점수"]) if not _ms_us.empty else 50, _us_exposure)
+        st.metric("🇺🇸 익스포져", f"{_us_exposure}%", _us_align)
+
+    # 미국 차트
+    _ms_fig_us = _go.Figure()
+    if not _ms_us.empty:
+        _ms_fig_us.add_trace(_go.Scatter(
+            x=_ms_us["날짜"], y=_ms_us["시장점수"],
+            mode="lines", name="시장점수",
+            line=dict(color="#1A5ECC", width=2, shape="spline", smoothing=1.0),
+        ))
+    _ms_fig_us.add_hline(y=_us_exposure, line_dash="solid", line_color="#27AE60", line_width=2,
+                         annotation_text=f"익스포져 {_us_exposure}%", annotation_font_color="#27AE60")
+    _ms_fig_us.add_hline(y=85, line_dash="dot", line_color="#444", line_width=1)
+    _ms_fig_us.add_hline(y=30, line_dash="dot", line_color="#444", line_width=1)
+    _ms_fig_us.update_layout(
+        paper_bgcolor="#1a1a2e", plot_bgcolor="#1a1a2e",
+        xaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)"),
+        yaxis=dict(color="#AAA", gridcolor="rgba(255,255,255,0.08)", title="🇺🇸 시장점수 vs 익스포져", range=[0, 105]),
+        font=dict(color="#AAA"), height=200, margin=dict(l=50, r=20, t=10, b=30),
+        showlegend=False,
+    )
+    st.plotly_chart(_ms_fig_us, use_container_width=True)
 
     st.divider()
 
