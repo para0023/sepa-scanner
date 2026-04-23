@@ -713,13 +713,14 @@ def calc_exposure_history(lookback: int = 90) -> pd.DataFrame:
     if capital <= 0:
         return pd.DataFrame()
 
-    # 누적 실현손익 → 총자산 = 원금 + 누적손익
+    # 날짜별 누적 실현손익 계산용
     _pnl_df = get_realized_pnl()
-    _pnl_cols = [c for c in _pnl_df.columns if "비용차감손익" in c]
-    _cum_pnl = _pnl_df[_pnl_cols[0]].sum() if _pnl_cols and not _pnl_df.empty else 0
-    total_asset_base = capital + _cum_pnl
-    if total_asset_base <= 0:
-        total_asset_base = capital
+    _pnl_col = None
+    if not _pnl_df.empty:
+        _pnl_cols = [c for c in _pnl_df.columns if "비용차감손익" in c]
+        if _pnl_cols:
+            _pnl_col = _pnl_cols[0]
+            _pnl_df["_date"] = pd.to_datetime(_pnl_df["날짜"])
 
     # 캐시 로드
     cached = {}
@@ -762,6 +763,15 @@ def calc_exposure_history(lookback: int = 90) -> pd.DataFrame:
             cur += timedelta(days=1)
             continue
 
+        # 해당 날짜까지 누적 실현손익 → 총자산
+        if _pnl_col and not _pnl_df.empty:
+            _cum = _pnl_df[_pnl_df["_date"] <= d_str][_pnl_col].sum()
+        else:
+            _cum = 0
+        _total_asset = capital + _cum
+        if _total_asset <= 0:
+            _total_asset = capital
+
         invested = 0
         cost_basis = 0
         for pos in data["positions"]:
@@ -783,7 +793,7 @@ def calc_exposure_history(lookback: int = 90) -> pd.DataFrame:
                     cur_price = ticker_prices[prev_dates[0]] if prev_dates else avg_buy
                 invested += cur_price * hold_qty
 
-        exposure = round(min(invested / total_asset_base * 100, 100), 1)
+        exposure = round(min(invested / _total_asset * 100, 100), 1)
         records.append({"날짜": d_str, "익스포져": exposure})
         cached[d_str] = exposure
         cur += timedelta(days=1)
