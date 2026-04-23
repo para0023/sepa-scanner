@@ -4110,6 +4110,46 @@ def show_portfolio():
         # 시장점수 vs 익스포져
         st.subheader("시장 추세 vs 익스포져")
 
+        # 시장점수 계산 (메인과 동일 로직)
+        @st.cache_data(ttl=3600)
+        def _calc_market_score_risk(index_code, lookback=90):
+            _end = datetime.now()
+            _start = _end - timedelta(days=lookback + 60)
+            _df = fdr.DataReader(index_code, _start, _end)
+            if _df.empty or len(_df) < 30:
+                return pd.DataFrame()
+            _close = _df["Close"]
+            _volume = _df["Volume"]
+            _ma20 = _close.rolling(20).mean()
+            _slope = (_ma20 / _ma20.shift(10) - 1) * 100
+            _vol_ma60 = _volume.rolling(60).mean()
+            _vol_ratio = _volume / _vol_ma60
+            _rolling_low = _close.rolling(20).min()
+            _low_rising = _rolling_low > _rolling_low.shift(10)
+            def _s(s):
+                if s <= -3: return 0
+                elif s <= -1: return 30
+                elif s <= 0: return 50
+                elif s <= 1: return 70
+                elif s <= 3: return 80
+                else: return 100
+            def _p(above, vr):
+                if above: return 100
+                elif vr <= 1.0: return 50
+                else: return 20
+            result = pd.DataFrame({"날짜": _df.index, "종가": _close, "MA20": _ma20, "기울기": _slope}).dropna()
+            result["기울기점수"] = result["기울기"].apply(_s)
+            result["위치점수"] = [_p(
+                bool(_close.loc[i] > _ma20.loc[i]) if i in _close.index and i in _ma20.index else False,
+                float(_vol_ratio.loc[i]) if i in _vol_ratio.index else 1.0
+            ) for i in result.index]
+            result["저점점수"] = [100 if (i in _low_rising.index and bool(_low_rising.loc[i])) else 30 for i in result.index]
+            result["시장점수"] = (result["기울기점수"] * 0.5 + result["위치점수"] * 0.3 + result["저점점수"] * 0.2).round(0).astype(int)
+            return result.tail(lookback)
+
+        _ms_kr = _calc_market_score_risk("KS11")
+        _ms_us = _calc_market_score_risk("^GSPC")
+
         # 제안 2,3,4: 9칸 매트릭스 + OTI 오버레이
         def _trend_alignment(score, exposure, oti_val=100):
             # 시장: 강(>=70) / 중(30~69) / 약(<30)
