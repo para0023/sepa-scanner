@@ -707,7 +707,7 @@ def calc_exposure_history(lookback: int = 90) -> pd.DataFrame:
     캐시 파일: cache/exposure_history_{portfolio_file}.json
     """
     import FinanceDataReader as _fdr
-    _pf = _current_file.name if hasattr(_current_file, 'name') else str(_current_file)
+    _pf = PORTFOLIO_FILE.name if hasattr(PORTFOLIO_FILE, 'name') else str(PORTFOLIO_FILE)
     _cache_file = Path(__file__).parent / "cache" / f"exposure_history_{Path(_pf).stem}.json"
     capital = get_total_capital()
     if capital <= 0:
