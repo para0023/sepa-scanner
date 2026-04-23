@@ -4976,8 +4976,13 @@ def show_portfolio():
                     _tk = _r["종목코드"]
                     _nm = _r["종목명"]
                     _avg = _r["평균매수가"]
+                    _sl = _r.get("손절가", 0)
+                    _tp = _r.get("1차익절가", 0)
                     _default = _existing_entries.get(_tk, "")
-                    st.markdown(f"**{_nm}** ({_tk}) | 매수가: {_avg:,.0f}원")
+                    _info = f"**{_nm}** ({_tk}) | 매수가: {_avg:,.0f}원 | 손절가: {_sl:,.0f}원"
+                    if _tp and _tp > 0:
+                        _info += f" | 1차익절: {_tp:,.0f}원"
+                    st.markdown(_info)
                     _memo = st.text_area(f"{_nm} 메모", value=_default, key=f"jn_{_tk}", height=80,
                                          placeholder="현재 상태 분석 + 오늘 행동 계획")
                     _jn_entries.append({"종목코드": _tk, "종목명": _nm, "시장": "KR", "메모": _memo})
@@ -4989,8 +4994,13 @@ def show_portfolio():
                     _tk = _r["종목코드"]
                     _nm = _r["종목명"]
                     _avg = _r["평균매수가"]
+                    _sl = _r.get("손절가", 0)
+                    _tp = _r.get("1차익절가", 0)
                     _default = _existing_entries.get(_tk, "")
-                    st.markdown(f"**{_nm}** ({_tk}) | 매수가: ${_avg:,.2f}")
+                    _info = f"**{_nm}** ({_tk}) | 매수가: ${_avg:,.2f} | 손절가: ${_sl:,.2f}"
+                    if _tp and _tp > 0:
+                        _info += f" | 1차익절: ${_tp:,.2f}"
+                    st.markdown(_info)
                     _memo = st.text_area(f"{_nm} 메모", value=_default, key=f"jn_{_tk}", height=80,
                                          placeholder="현재 상태 분석 + 오늘 행동 계획")
                     _jn_entries.append({"종목코드": _tk, "종목명": _nm, "시장": "US", "메모": _memo})
