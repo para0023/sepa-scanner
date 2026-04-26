@@ -26,6 +26,8 @@ interface ChartData {
   benchmark_line: (number | null)[];
   signals: { entry: number[]; sell: number[] };
   atr: (number | null)[];
+  vol_ma5?: (number | null)[];
+  vol_ma60?: (number | null)[];
   trades: { date: string; type: string; price: number; quantity: number }[];
 }
 
@@ -57,7 +59,11 @@ function barColor(val: number): string {
     return `rgba(${r},${g},${b},0.85)`;
   }
 }
-function fmtNum(n: number) { return n.toLocaleString("ko-KR", { maximumFractionDigits: 0 }); }
+function fmtNum(n: number) {
+  // 소수점이 있으면 달러(미국), 없으면 원(한국)
+  if (n % 1 !== 0) return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return n.toLocaleString("ko-KR", { maximumFractionDigits: 0 });
+}
 function fmtVol(n: number) {
   if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
   if (n >= 1e3) return (n / 1e3).toFixed(0) + "K";
@@ -65,7 +71,10 @@ function fmtVol(n: number) {
 }
 
 export default function CandlestickChart({ data }: { data: ChartData }) {
-  const visibleDays = 60; // 초기 보이는 범위 (휠/드래그로 자유 조절)
+  const visibleDays = 60;
+  // 가격이 소수점이면 달러(미국주식)
+  const isUSD = data.ohlcv.close.some((v) => v % 1 !== 0);
+  const minMove = isUSD ? 0.01 : 1;
   const refs = {
     entry: useRef<HTMLDivElement>(null),
     sell: useRef<HTMLDivElement>(null),
@@ -138,7 +147,7 @@ export default function CandlestickChart({ data }: { data: ChartData }) {
       upColor: "#EF5350", downColor: "#26A69A",
       borderUpColor: "#EF5350", borderDownColor: "#26A69A",
       wickUpColor: "#EF5350", wickDownColor: "#26A69A",
-      priceFormat: { type: "custom", formatter: (p: any) => fmtNum(Number(p)), minMove: 1 },
+      priceFormat: { type: "custom", formatter: (p: any) => fmtNum(Number(p)), minMove },
     });
     sCandle.setData(dates.map((d, i) => ({
       time: d, open: data.ohlcv.open[i], high: data.ohlcv.high[i],
@@ -151,7 +160,7 @@ export default function CandlestickChart({ data }: { data: ChartData }) {
         color: "#5C6BC0", lineWidth: 1, lineStyle: 2,
         priceScaleId: "benchmark",
         priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-        priceFormat: { type: "custom", formatter: (p: any) => fmtNum(Number(p)), minMove: 1 },
+        priceFormat: { type: "custom", formatter: (p: any) => fmtNum(Number(p)), minMove },
       });
       cMain.priceScale("benchmark").applyOptions({
         scaleMargins: { top: 0.02, bottom: 0.15 },
@@ -225,12 +234,12 @@ export default function CandlestickChart({ data }: { data: ChartData }) {
       const s = cMain.addSeries(LineSeries, {
         color: MA_COLORS[key] || "#888", lineWidth: 1,
         priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-        priceFormat: { type: "custom", formatter: (p: any) => fmtNum(Number(p)), minMove: 1 },
+        priceFormat: { type: "custom", formatter: (p: any) => fmtNum(Number(p)), minMove },
       });
       s.setData(dates.map((d, i) => ({ time: d, value: vals[i] })).filter((p) => p.value !== null) as any[]);
     });
 
-    // 4) 거래량 (별도 차트)
+    // 4) 거래량 (별도 차트) + MA5/MA60
     const cVol = mk(refs.vol.current!, 60);
     const sVol = cVol.addSeries(HistogramSeries, {
       priceFormat: { type: "volume" },
@@ -240,6 +249,26 @@ export default function CandlestickChart({ data }: { data: ChartData }) {
       time: d, value: data.ohlcv.volume[i],
       color: data.ohlcv.close[i] >= data.ohlcv.open[i] ? "rgba(239,83,80,0.4)" : "rgba(38,166,154,0.4)",
     })) as any);
+
+    // 거래량 MA5 (노란선)
+    if (data.vol_ma5) {
+      const sVolMa5 = cVol.addSeries(LineSeries, {
+        color: "#FFEB3B", lineWidth: 1,
+        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+        priceFormat: { type: "volume" },
+      });
+      sVolMa5.setData(dates.map((d, i) => ({ time: d, value: data.vol_ma5![i] })).filter((p) => p.value != null) as any[]);
+    }
+
+    // 거래량 MA60 (주황선)
+    if (data.vol_ma60) {
+      const sVolMa60 = cVol.addSeries(LineSeries, {
+        color: "#FF9800", lineWidth: 1,
+        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+        priceFormat: { type: "volume" },
+      });
+      sVolMa60.setData(dates.map((d, i) => ({ time: d, value: data.vol_ma60![i] })).filter((p) => p.value != null) as any[]);
+    }
 
     // 5) RS
     const cRS = mk(refs.rs.current!, 80);
@@ -382,7 +411,11 @@ export default function CandlestickChart({ data }: { data: ChartData }) {
           <span className={o >= pc ? "text-red-400" : "text-teal-400"}>{pctVsPrev(o)}</span>
         </div>
 
-        <div className="text-gray-500 mt-1">Vol <span className="text-gray-300">{fmtVol(data.ohlcv.volume[idx])}</span></div>
+        <div className="text-gray-500 mt-1">
+          Vol <span className="text-gray-300">{fmtVol(data.ohlcv.volume[idx])}</span>
+          {data.vol_ma5 && data.vol_ma5[idx] != null && <span className="ml-2" style={{color:"#FFEB3B"}}>MA5 {fmtVol(data.vol_ma5[idx]!)}</span>}
+          {data.vol_ma60 && data.vol_ma60[idx] != null && <span className="ml-2" style={{color:"#FF9800"}}>MA60 {fmtVol(data.vol_ma60[idx]!)}</span>}
+        </div>
 
         {/* 이동평균선 */}
         <div className="border-t border-gray-700/50 mt-1.5 pt-1.5 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">

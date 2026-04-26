@@ -45,6 +45,110 @@ interface MetricsResponse {
   signals: { entry: number[]; sell: number[] };
 }
 
+function FinancialsSection({ ticker }: { ticker: string }) {
+  const [fin, setFin] = useState<any>(null);
+  const [finLoading, setFinLoading] = useState(true);
+
+  useEffect(() => {
+    setFinLoading(true);
+    fetchApi<any>(`/chart/${ticker}/financials`)
+      .then(setFin)
+      .catch(() => setFin(null))
+      .finally(() => setFinLoading(false));
+  }, [ticker]);
+
+  if (finLoading) return <p className="text-gray-600 text-xs mt-4 animate-pulse">재무 데이터 로딩 중...</p>;
+  if (!fin) return null;
+
+  const company = fin.company;
+  const custom = fin.custom_desc;
+  const annual = fin.annual;
+  const quarterly = fin.quarterly;
+
+  const fmtGrowth = (v: number | null) => {
+    if (v == null) return "—";
+    return <span className={v >= 0 ? "text-red-400" : "text-teal-400"}>{v >= 0 ? "+" : ""}{v}%</span>;
+  };
+
+  return (
+    <div className="mt-6 space-y-4">
+      {/* 회사 개요 */}
+      {(company || custom) && (
+        <div className="bg-[#161b22] rounded-lg p-4 border border-gray-800">
+          <h3 className="text-sm font-bold text-white mb-2">Company</h3>
+          <div className="flex gap-4 text-xs text-gray-400 mb-2">
+            {(custom?.sector || company?.sector) && <span>섹터: <span className="text-gray-300">{custom?.sector || company?.sector}</span></span>}
+            {(custom?.industry || company?.industry) && <span>산업: <span className="text-gray-300">{custom?.industry || company?.industry}</span></span>}
+          </div>
+          {custom?.products && <p className="text-xs text-gray-400 mb-1">주요제품: <span className="text-gray-300">{custom.products}</span></p>}
+          {custom?.memo && <p className="text-xs text-gray-300 mb-1">{custom.memo}</p>}
+          {!custom?.memo && company?.description && (
+            <p className="text-xs text-gray-500 leading-relaxed">{company.description.slice(0, 300)}{company.description.length > 300 ? "..." : ""}</p>
+          )}
+        </div>
+      )}
+
+      {/* 연간 재무 */}
+      {annual && annual.data && annual.data.length > 0 && (
+        <div>
+          <h3 className="text-sm text-gray-500 mb-2">연간 실적 ({annual.unit})</h3>
+          <div className="overflow-x-auto border border-gray-800 rounded-lg">
+            <table className="w-full text-xs">
+              <thead><tr className="bg-[#161b22] border-b border-gray-800 text-gray-500">
+                <th className="px-3 py-2 text-left">기간</th>
+                <th className="px-3 py-2 text-right">매출액</th>
+                <th className="px-3 py-2 text-right">증가율</th>
+                <th className="px-3 py-2 text-right">영업이익</th>
+                <th className="px-3 py-2 text-right">증가율</th>
+              </tr></thead>
+              <tbody>
+                {annual.data.map((r: any) => (
+                  <tr key={r.date} className="border-b border-gray-800/50">
+                    <td className="px-3 py-1.5 text-gray-400">{r.date}</td>
+                    <td className="px-3 py-1.5 text-right text-gray-300">{r.revenue?.toLocaleString() ?? "—"}</td>
+                    <td className="px-3 py-1.5 text-right">{fmtGrowth(r.revenue_growth)}</td>
+                    <td className="px-3 py-1.5 text-right text-gray-300">{r.operating_income?.toLocaleString() ?? "—"}</td>
+                    <td className="px-3 py-1.5 text-right">{fmtGrowth(r.oi_growth)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* 분기 재무 */}
+      {quarterly && quarterly.data && quarterly.data.length > 0 && (
+        <div>
+          <h3 className="text-sm text-gray-500 mb-2">분기 실적 ({quarterly.unit}, 전년동기비)</h3>
+          <div className="overflow-x-auto border border-gray-800 rounded-lg">
+            <table className="w-full text-xs">
+              <thead><tr className="bg-[#161b22] border-b border-gray-800 text-gray-500">
+                <th className="px-3 py-2 text-left">기간</th>
+                <th className="px-3 py-2 text-right">매출액</th>
+                <th className="px-3 py-2 text-right">증가율</th>
+                <th className="px-3 py-2 text-right">영업이익</th>
+                <th className="px-3 py-2 text-right">증가율</th>
+              </tr></thead>
+              <tbody>
+                {quarterly.data.map((r: any) => (
+                  <tr key={r.date} className="border-b border-gray-800/50">
+                    <td className="px-3 py-1.5 text-gray-400">{r.date}</td>
+                    <td className="px-3 py-1.5 text-right text-gray-300">{r.revenue?.toLocaleString() ?? "—"}</td>
+                    <td className="px-3 py-1.5 text-right">{fmtGrowth(r.revenue_growth)}</td>
+                    <td className="px-3 py-1.5 text-right text-gray-300">{r.operating_income?.toLocaleString() ?? "—"}</td>
+                    <td className="px-3 py-1.5 text-right">{fmtGrowth(r.oi_growth)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const PERIOD_OPTIONS = [20, 40, 60, 120, 250];
 
 export default function ChartPage() {
@@ -176,7 +280,6 @@ export default function ChartPage() {
           rs: {
             ...data.rs,
             line: (() => {
-              // period 시작점 = 100으로 RS line 재정규화
               const anchorIdx = Math.max(0, data.rs.line.length - period);
               const anchor = data.rs.line[anchorIdx];
               if (anchor == null || anchor === 0) return data.rs.line;
@@ -185,6 +288,9 @@ export default function ChartPage() {
           },
         }} />
       )}
+
+      {/* 재무 데이터 + 회사 개요 */}
+      {data && !loading && <FinancialsSection ticker={ticker} />}
     </div>
   );
 }

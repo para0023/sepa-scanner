@@ -1,9 +1,11 @@
 """
-/api/chart/{ticker} — 종목 차트 데이터 API
+/api/chart/{ticker} — 종목 차트 데이터 + 재무 API
 기존 relative_strength.py 함수를 래핑하여 JSON으로 반환
 """
 from fastapi import APIRouter, Query, HTTPException
 import numpy as np
+import json
+from pathlib import Path
 
 router = APIRouter(tags=["chart"])
 
@@ -121,14 +123,14 @@ def get_chart_data(
         },
         "ohlcv": {
             "dates": dates,
-            "open": [round(float(x)) for x in stock_trimmed["Open"].tolist()],
-            "high": [round(float(x)) for x in stock_trimmed["High"].tolist()],
-            "low": [round(float(x)) for x in stock_trimmed["Low"].tolist()],
-            "close": [round(float(x)) for x in stock_trimmed["Close"].tolist()],
+            "open": [round(float(x), 2 if market == "US" else 0) for x in stock_trimmed["Open"].tolist()],
+            "high": [round(float(x), 2 if market == "US" else 0) for x in stock_trimmed["High"].tolist()],
+            "low": [round(float(x), 2 if market == "US" else 0) for x in stock_trimmed["Low"].tolist()],
+            "close": [round(float(x), 2 if market == "US" else 0) for x in stock_trimmed["Close"].tolist()],
             "volume": [int(v) for v in stock_trimmed["Volume"].tolist()],
         },
         "ma": {
-            k: [round(float(x)) if pd.notna(x) else None for x in v.tolist()]
+            k: [round(float(x), 2 if market == "US" else 0) if pd.notna(x) else None for x in v.tolist()]
             for k, v in mas_trimmed.items()
         },
         "rs": {
@@ -137,12 +139,115 @@ def get_chart_data(
             "stock_return": round(float(stock_ret), 2),
             "index_return": round(float(index_ret), 2),
         },
-        "benchmark_line": [round(float(x)) if pd.notna(x) else None for x in bench_close.tolist()],
+        "benchmark_line": [round(float(x), 2 if market == "US" else 0) if pd.notna(x) else None for x in bench_close.tolist()],
         "signals": {
             "entry": [round(float(x), 3) for x in entry_trimmed.tolist()],
             "sell": [round(float(x), 3) for x in sell_trimmed.tolist()],
             "pressure": [round(float(x), 3) for x in pressure_trimmed.tolist()],
         },
         "atr": [round(float(x), 2) if not np.isnan(x) else None for x in atr_trimmed.tolist()],
+        "vol_ma5": [round(float(x)) if pd.notna(x) else None for x in stock_trimmed["Volume"].rolling(5, min_periods=1).mean().tolist()],
+        "vol_ma60": [round(float(x)) if pd.notna(x) else None for x in stock_trimmed["Volume"].rolling(60, min_periods=1).mean().tolist()],
         "trades": trades,
     }
+
+
+@router.get("/chart/{ticker}/financials")
+def get_financials(ticker: str):
+    """회사개요 + 연간/분기 재무데이터"""
+    import yfinance as yf
+    import pandas as pd
+    from relative_strength import detect_market
+
+    market = detect_market(ticker)
+    is_kr = (market == "KR")
+    unit_label = "억원" if is_kr else "백만$"
+    unit_div = 1e8 if is_kr else 1e6
+    yf_sym = ticker + ".KS" if is_kr else ticker
+
+    result = {"company": None, "annual": None, "quarterly": None}
+
+    # 회사 개요
+    try:
+        t = yf.Ticker(yf_sym)
+        info = t.info or {}
+        if not info.get("longBusinessSummary") and is_kr:
+            info = yf.Ticker(ticker + ".KQ").info or {}
+        result["company"] = {
+            "sector": info.get("sector", ""),
+            "industry": info.get("industry", ""),
+            "description": info.get("longBusinessSummary", ""),
+            "marketCap": info.get("marketCap", 0),
+        }
+    except Exception:
+        pass
+
+    # 사용자 저장 설명
+    desc_file = Path(__file__).parent.parent.parent / "company_desc.json"
+    try:
+        if desc_file.exists():
+            custom = json.load(open(desc_file, encoding="utf-8"))
+            if ticker in custom:
+                result["custom_desc"] = custom[ticker]
+    except Exception:
+        pass
+
+    # 네이버 fallback (한국 종목)
+    if is_kr and (not result.get("company") or not result["company"].get("description")):
+        try:
+            import urllib.request
+            from html.parser import HTMLParser
+            url = "https://finance.naver.com/item/coinfo.naver?code=%s" % ticker
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                html = resp.read().decode("euc-kr", errors="ignore")
+            # 간단 파싱
+            import re
+            match = re.search(r'<p class="summary_info">(.*?)</p>', html, re.S)
+            if match and result.get("company"):
+                result["company"]["description"] = re.sub(r'<[^>]+>', '', match.group(1)).strip()
+        except Exception:
+            pass
+
+    # 재무 데이터
+    def _build(raw, yoy_periods=1):
+        if raw is None or raw.empty:
+            return None
+        needed = [r for r in ["Total Revenue", "Operating Income"] if r in raw.index]
+        if not needed:
+            return None
+        df = raw.loc[needed].T.dropna(how="all").copy()
+        df.index = pd.to_datetime(df.index)
+        df = df.sort_index()
+        rows = []
+        for dt, row in df.iterrows():
+            r = {"date": dt.strftime("%Y-%m")}
+            if "Total Revenue" in row:
+                r["revenue"] = round(float(row["Total Revenue"]) / unit_div, 1) if pd.notna(row["Total Revenue"]) else None
+            if "Operating Income" in row:
+                r["operating_income"] = round(float(row["Operating Income"]) / unit_div, 1) if pd.notna(row["Operating Income"]) else None
+            rows.append(r)
+        # 증가율 계산
+        for i in range(len(rows)):
+            if i >= yoy_periods:
+                prev = rows[i - yoy_periods]
+                if rows[i].get("revenue") and prev.get("revenue") and prev["revenue"] != 0:
+                    rows[i]["revenue_growth"] = round((rows[i]["revenue"] / prev["revenue"] - 1) * 100, 1)
+                if rows[i].get("operating_income") and prev.get("operating_income") and prev["operating_income"] != 0:
+                    rows[i]["oi_growth"] = round((rows[i]["operating_income"] / prev["operating_income"] - 1) * 100, 1)
+        return {"unit": unit_label, "data": list(reversed(rows))}
+
+    try:
+        t2 = yf.Ticker(yf_sym)
+        annual = t2.financials
+        quarter = t2.quarterly_financials
+        if is_kr and (annual is None or annual.empty):
+            t3 = yf.Ticker(ticker + ".KQ")
+            annual = t3.financials
+            quarter = t3.quarterly_financials
+        result["annual"] = _build(annual, 1)
+        result["quarterly"] = _build(quarter, 4)
+    except Exception:
+        pass
+
+    return result
