@@ -42,3 +42,14 @@ watchlist_stocks.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Next.js 빌드 캐시
+**/.next/
+**/node_modules/
+
+# 백업 파일
+*.bak.*
+
+# 임시 이미지
+m1_vs_kospi.png
+m2_vs_kospi.png
