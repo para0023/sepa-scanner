@@ -82,6 +82,53 @@ def get_positions_prices(market: str = Query("KR")):
     return {"prices": {t: round(p) if p > 0 else None for t, p in prices.items()}}
 
 
+@router.get("/reentry-check/{ticker}")
+def check_reentry(ticker: str, market: str = Query("KR")):
+    """재진입 경고 체크 — 마지막 청산일로부터 경과일 확인"""
+    _set_market(market)
+    from portfolio import _load
+    from datetime import datetime
+
+    data = _load()
+    last_exit = None
+    last_result = None
+
+    for pos in data.get("positions", []):
+        if pos["ticker"] == ticker and pos["status"] == "closed":
+            sells = [t for t in pos.get("trades", []) if t["type"] == "sell"]
+            buys = [t for t in pos.get("trades", []) if t["type"] == "buy"]
+            if sells:
+                exit_date = sells[-1]["date"]
+                if last_exit is None or exit_date > last_exit:
+                    last_exit = exit_date
+                    # 손익 판단
+                    if buys and sells:
+                        avg_buy = sum(t["price"] * t["quantity"] for t in buys) / sum(t["quantity"] for t in buys)
+                        avg_sell = sum(t["price"] * t["quantity"] for t in sells) / sum(t["quantity"] for t in sells)
+                        last_result = "win" if avg_sell > avg_buy else "loss"
+
+    if not last_exit:
+        return {"warning": None}
+
+    days_since = (datetime.now() - datetime.strptime(last_exit, "%Y-%m-%d")).days
+    min_days = 30 if last_result == "win" else 14  # 익절 후 30일, 손절 후 14일
+
+    if days_since < min_days:
+        return {
+            "warning": True,
+            "last_exit": last_exit,
+            "result": last_result,
+            "days_since": days_since,
+            "min_days": min_days,
+            "message": "%s %d일 전 %s. 최소 %d일 대기 권장 (잔여 %d일)" % (
+                ticker, days_since,
+                "익절" if last_result == "win" else "손절",
+                min_days, min_days - days_since
+            ),
+        }
+    return {"warning": False, "last_exit": last_exit, "days_since": days_since}
+
+
 @router.post("/buy")
 def add_buy(req: BuyRequest, market: str = Query("KR")):
     _set_market(market)

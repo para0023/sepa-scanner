@@ -230,8 +230,8 @@ function BalanceTab({ market, currency, onReload }: { market: "KR" | "US"; curre
   const [capital, setCapital] = useState(0);
   const [flows, setFlows] = useState<any[]>([]);
   const [sysBalance, setSysBalance] = useState<any>(null);
-  const [flowForm, setFlowForm] = useState({ date: new Date().toISOString().slice(0, 10), type: "입금", amount: "", note: "" });
-  const [adjForm, setAdjForm] = useState({ date: new Date().toISOString().slice(0, 10), actual: "" });
+  const [flowForm, setFlowForm] = useState({ date: new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10), type: "입금", amount: "", note: "" });
+  const [adjForm, setAdjForm] = useState({ date: new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10), actual: "" });
   const [msg, setMsg] = useState("");
 
   const load = () => {
@@ -398,7 +398,7 @@ function BalanceTab({ market, currency, onReload }: { market: "KR" | "US"; curre
 
 function JournalTab() {
   const [mode, setMode] = useState<"write" | "view">("write");
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10));
   const [krPositions, setKrPositions] = useState<any[]>([]);
   const [usPositions, setUsPositions] = useState<any[]>([]);
   const [memos, setMemos] = useState<Record<string, string>>({});
@@ -654,6 +654,7 @@ export default function PortfolioPage() {
   const [showBuyForm, setShowBuyForm] = useState(false);
   const [showSellForm, setShowSellForm] = useState(false);
   const [buyForm, setBuyForm] = useState({ ticker: "", name: "", date: "", price: "", quantity: "", stop_loss: "", entry_reason: "PB", memo: "", take_profit: "" });
+  const [reentryWarning, setReentryWarning] = useState<any>(null);
   const [sellForm, setSellForm] = useState({ position_id: "", date: "", price: "", quantity: "", reason: "" });
   const [formMsg, setFormMsg] = useState("");
 
@@ -1149,7 +1150,15 @@ export default function PortfolioPage() {
             <div className="bg-[#161b22] rounded-lg p-4 border border-gray-800 mt-3">
               <h3 className="text-sm font-bold text-white mb-3">매수 입력</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                <input placeholder="종목코드" value={buyForm.ticker} onChange={(e) => setBuyForm({ ...buyForm, ticker: e.target.value })}
+                <input placeholder="종목코드" value={buyForm.ticker} onChange={(e) => {
+                    const t = e.target.value;
+                    setBuyForm({ ...buyForm, ticker: t });
+                    setReentryWarning(null);
+                    if (t.trim().length >= 2) {
+                      fetch(`${process.env.NEXT_PUBLIC_API_URL || `http://${typeof window !== "undefined" ? window.location.hostname : "localhost"}:8000/api`}/portfolio/reentry-check/${t.trim().toUpperCase()}?market=${market}`)
+                        .then((r) => r.json()).then(setReentryWarning).catch(() => {});
+                    }
+                  }}
                   className="bg-[#0d1117] border border-gray-700 rounded px-2 py-1.5 text-white" />
                 <input placeholder="종목명" value={buyForm.name} onChange={(e) => setBuyForm({ ...buyForm, name: e.target.value })}
                   className="bg-[#0d1117] border border-gray-700 rounded px-2 py-1.5 text-white" />
@@ -1185,6 +1194,11 @@ export default function PortfolioPage() {
                   else setFormMsg("오류: " + await res.text());
                 } catch (e: any) { setFormMsg("오류: " + e.message); }
               }} className="mt-3 px-4 py-1.5 bg-red-600 hover:bg-red-700 rounded text-sm text-white">매수 등록</button>
+              {reentryWarning?.warning && (
+                <div className="mt-2 p-2 bg-yellow-900/30 border border-yellow-700/50 rounded text-xs text-yellow-400">
+                  ⚠️ {reentryWarning.message}
+                </div>
+              )}
             </div>
           )}
 
