@@ -35,6 +35,8 @@ interface ChartResponse {
     pressure: number[];
   };
   atr: (number | null)[];
+  benchmark_line: (number | null)[];
+  trades: { date: string; type: string; price: number; quantity: number }[];
 }
 
 // 지표 카드용 (기간별 RS/신호)

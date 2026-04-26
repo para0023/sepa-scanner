@@ -72,7 +72,7 @@ export default function DataTable({ columns, data, tickerKey, onRowClick, showRo
 
   return (
     <div className="overflow-x-auto border border-gray-800 rounded-lg">
-      <table className="w-full text-sm">
+      <table className="w-full text-sm md:text-sm text-xs">
         <thead>
           <tr className="bg-[#161b22] border-b border-gray-800">
             {showRowNumber && (
@@ -82,7 +82,7 @@ export default function DataTable({ columns, data, tickerKey, onRowClick, showRo
               <th
                 key={col.key}
                 onClick={() => handleSort(col.key)}
-                className={`px-3 py-2 text-xs text-gray-500 font-medium cursor-pointer hover:text-gray-300 select-none ${
+                className={`px-2 md:px-3 py-2 text-xs text-gray-500 font-medium cursor-pointer hover:text-gray-300 select-none whitespace-nowrap ${
                   col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : "text-left"
                 }`}
               >
@@ -113,7 +113,7 @@ export default function DataTable({ columns, data, tickerKey, onRowClick, showRo
                 return (
                   <td
                     key={col.key}
-                    className={`px-3 py-1.5 ${
+                    className={`px-2 md:px-3 py-1.5 whitespace-nowrap ${
                       col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : "text-left"
                     } ${isPos ? "text-red-400" : isNeg ? "text-teal-400" : "text-gray-300"}`}
                   >

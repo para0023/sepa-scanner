@@ -1,7 +1,10 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+function getApiBase(): string {
+  if (typeof window === "undefined") return "http://localhost:8000/api";
+  return `http://${window.location.hostname}:8000/api`;
+}
 
 export async function fetchApi<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`);
+  const res = await fetch(`${getApiBase()}${path}`);
   if (!res.ok) {
     const detail = await res.text();
     throw new Error(`API error ${res.status}: ${detail}`);
@@ -19,7 +22,7 @@ export function fetchSSE<T>(
   onProgress?: (done: number, total: number) => void,
 ): Promise<T> {
   return new Promise((resolve, reject) => {
-    const es = new EventSource(`${API_BASE}${path}`);
+    const es = new EventSource(`${getApiBase()}${path}`);
 
     es.addEventListener("progress", (e: MessageEvent) => {
       if (onProgress) {

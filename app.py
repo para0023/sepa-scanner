@@ -3051,27 +3051,30 @@ def _show_portfolio_us():
                 st.caption(f"  · {d['종목명']} ({d['보유일']}일, {d['수익률']:+.2f}%)")
 
         _r_oti_hist_us = calc_oti_history(days=3, lookback=60)
-        _oti_us_dates = [pd.Timestamp(d).strftime("%m/%d") for d in _r_oti_hist_us["날짜"]] if not _r_oti_hist_us.empty else []
-        _oti_us_vals = _r_oti_hist_us["OTI"].tolist() if not _r_oti_hist_us.empty else []
-        _oti_us_max = max(_oti_us_vals + [500]) if _oti_us_vals else 500
-        _oti_us_series = [
-            {"name": "OTI", "type": "line", "smooth": True, "data": _oti_us_vals,
-             "lineStyle": {"color": "#1A5ECC", "width": 2}, "itemStyle": {"color": "#1A5ECC"}, "symbol": "none"},
-            {"name": "정상(100)", "type": "line", "smooth": False, "data": [100] * len(_oti_us_dates),
-             "lineStyle": {"color": "#888", "width": 1, "type": "dashed"}, "itemStyle": {"color": "#888"}, "symbol": "none"},
-            {"name": "주의(200)", "type": "line", "smooth": False, "data": [200] * len(_oti_us_dates),
-             "lineStyle": {"color": "#F39C12", "width": 1, "type": "dotted"}, "itemStyle": {"color": "#F39C12"}, "symbol": "none"},
-            {"name": "WALK AWAY(500)", "type": "line", "smooth": False, "data": [500] * len(_oti_us_dates),
-             "lineStyle": {"color": "#E74C3C", "width": 1, "type": "dotted"}, "itemStyle": {"color": "#E74C3C"}, "symbol": "none"},
-        ]
-        _st_ec({"backgroundColor": "#1a1a2e",
-                "xAxis": {"type": "category", "data": _oti_us_dates, "axisLabel": {"color": "#AAA"}, "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}}},
-                "yAxis": {"type": "value", "axisLabel": {"color": "#AAA"}, "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}}, "name": "OTI", "nameTextStyle": {"color": "#AAA"}},
-                "series": _oti_us_series,
-                "tooltip": {"trigger": "axis"},
-                "legend": {"show": False},
-                "grid": {"left": 50, "right": 20, "top": 10, "bottom": 30},
-               }, height="250px")
+        if not _r_oti_hist_us.empty:
+            _oti_us_df = _r_oti_hist_us.copy()
+            _oti_us_df["날짜"] = pd.to_datetime(_oti_us_df["날짜"])
+            _oti_us_max = max(int(_oti_us_df["OTI"].max()) + 50, 250)
+            _oti_us_line = alt.Chart(_oti_us_df).mark_line(interpolate="monotone", strokeWidth=3).encode(
+                x=alt.X("날짜:T", axis=alt.Axis(format="%m/%d", labelColor="#AAA", title=None)),
+                y=alt.Y("OTI:Q", scale=alt.Scale(domain=[0, _oti_us_max]), axis=alt.Axis(labelColor="#AAA", title=None)),
+                color=alt.value("#1A5ECC"),
+            ).properties(height=250)
+            _ref_us_data = pd.DataFrame([
+                {"값": 100, "라벨": "정상", "색상": "#666666"},
+                {"값": 200, "라벨": "주의", "색상": "#F39C12"},
+                {"값": 500, "라벨": "WALK AWAY", "색상": "#E74C3C"},
+            ])
+            _ref_us_lines = alt.Chart(_ref_us_data).mark_rule(strokeDash=[6, 4], strokeWidth=1).encode(
+                y="값:Q", color=alt.Color("색상:N", scale=None),
+            )
+            _ref_us_labels = alt.Chart(_ref_us_data).mark_text(align="left", dx=5, dy=-5, fontSize=10).encode(
+                y="값:Q", text="라벨:N", color=alt.Color("색상:N", scale=None),
+            )
+            _oti_us_chart = (_oti_us_line + _ref_us_lines + _ref_us_labels).configure_view(
+                fill="#1a1a2e", stroke=None
+            ).configure(background="#1a1a2e")
+            st.altair_chart(_oti_us_chart, use_container_width=True)
 
         st.divider()
         st.subheader("시장 추세 vs 익스포져")
@@ -3136,11 +3139,18 @@ def _show_portfolio_us():
             _ru_align = _trend_alignment_us(int(_ms_us.iloc[-1]["시장점수"]) if not _ms_us.empty else 50, _r_us_exp, _r_oti_us["oti"])
             st.metric("익스포져", f"{_r_us_exp}%", _ru_align)
 
-        _ru_ms_dates = [pd.Timestamp(d).strftime("%m/%d") for d in _ms_us["날짜"]] if not _ms_us.empty else []
-        _ru_ms_vals = _ms_us["시장점수"].tolist() if not _ms_us.empty else []
-        _ru_exp_dates = [pd.Timestamp(d).strftime("%m/%d") for d in _r_us_exp_hist["날짜"]] if not _r_us_exp_hist.empty else []
-        _ru_exp_vals = _r_us_exp_hist["익스포져"].tolist() if not _r_us_exp_hist.empty else []
-        _ru_dates = _ru_ms_dates if len(_ru_ms_dates) >= len(_ru_exp_dates) else _ru_exp_dates
+        # 날짜 기준 merge (거래일 vs 달력일 불일치 해소)
+        _ms_us_merge = _ms_us[["날짜", "시장점수"]].copy() if not _ms_us.empty else pd.DataFrame(columns=["날짜", "시장점수"])
+        _exp_us_merge = _r_us_exp_hist[["날짜", "익스포져"]].copy() if not _r_us_exp_hist.empty else pd.DataFrame(columns=["날짜", "익스포져"])
+        _ms_us_merge["날짜"] = pd.to_datetime(_ms_us_merge["날짜"]).dt.strftime("%Y-%m-%d")
+        _exp_us_merge["날짜"] = pd.to_datetime(_exp_us_merge["날짜"]).dt.strftime("%Y-%m-%d")
+        _ru_merged = pd.merge(_ms_us_merge, _exp_us_merge, on="날짜", how="outer").sort_values("날짜")
+        _ru_merged["시장점수"] = _ru_merged["시장점수"].ffill()
+        _ru_merged["익스포져"] = _ru_merged["익스포져"].ffill()
+        _ru_merged = _ru_merged.dropna()
+        _ru_dates = [pd.Timestamp(d).strftime("%m/%d") for d in _ru_merged["날짜"]]
+        _ru_ms_vals = _ru_merged["시장점수"].tolist()
+        _ru_exp_vals = _ru_merged["익스포져"].tolist()
         _ru_series = [
             {"name": "시장점수", "type": "line", "smooth": True, "data": _ru_ms_vals,
              "lineStyle": {"color": "#1A5ECC", "width": 2}, "itemStyle": {"color": "#1A5ECC"}, "symbol": "none"},
@@ -3151,14 +3161,16 @@ def _show_portfolio_us():
             {"name": "30", "type": "line", "smooth": False, "data": [30] * len(_ru_dates),
              "lineStyle": {"color": "#444", "width": 1, "type": "dotted"}, "itemStyle": {"color": "#444"}, "symbol": "none"},
         ]
-        _st_ec({"backgroundColor": "#1a1a2e",
-                "xAxis": {"type": "category", "data": _ru_dates, "axisLabel": {"color": "#AAA"}, "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}}},
-                "yAxis": {"type": "value", "min": 0, "max": 105, "axisLabel": {"color": "#AAA"}, "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}}, "name": "점수 / 익스포져(%)", "nameTextStyle": {"color": "#AAA"}},
-                "series": _ru_series,
-                "tooltip": {"trigger": "axis"},
-                "legend": {"show": True, "data": ["시장점수", "익스포져"], "textStyle": {"color": "#AAA"}, "orient": "horizontal", "left": 0, "top": 0},
-                "grid": {"left": 50, "right": 20, "top": 30, "bottom": 30},
-               }, height="250px")
+        _mk_us_option = {
+            "backgroundColor": "#1a1a2e",
+            "xAxis": {"type": "category", "data": _ru_dates, "axisLabel": {"color": "#AAA"}, "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}}},
+            "yAxis": {"type": "value", "min": 0, "max": 105, "axisLabel": {"color": "#AAA"}, "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}}},
+            "series": _ru_series,
+            "tooltip": {"trigger": "axis"},
+            "legend": {"show": True, "data": ["시장점수", "익스포져"], "textStyle": {"color": "#AAA"}, "orient": "horizontal", "right": 0, "top": 0},
+            "grid": {"left": 50, "right": 20, "top": 30, "bottom": 30},
+        }
+        _st_ec(options=_mk_us_option, height="250px", key="market_exposure_us")
 
     # ── 거래별 성과분석 ─────────────────────────────
     with tab_pnl:
@@ -4216,27 +4228,36 @@ def show_portfolio():
         set_portfolio_file("portfolio.json")
         _r_oti_hist_kr = calc_oti_history(days=3, lookback=60)
 
-        _oti_kr_dates = [pd.Timestamp(d).strftime("%m/%d") for d in _r_oti_hist_kr["날짜"]] if not _r_oti_hist_kr.empty else []
-        _oti_kr_vals = _r_oti_hist_kr["OTI"].tolist() if not _r_oti_hist_kr.empty else []
-        _oti_kr_max = max(_oti_kr_vals + [500]) if _oti_kr_vals else 500
-        _oti_kr_series = [
-            {"name": "OTI", "type": "line", "smooth": True, "data": _oti_kr_vals,
-             "lineStyle": {"color": "#D92B2B", "width": 2}, "itemStyle": {"color": "#D92B2B"}, "symbol": "none"},
-            {"name": "정상(100)", "type": "line", "smooth": False, "data": [100] * len(_oti_kr_dates),
-             "lineStyle": {"color": "#888", "width": 1, "type": "dashed"}, "itemStyle": {"color": "#888"}, "symbol": "none"},
-            {"name": "주의(200)", "type": "line", "smooth": False, "data": [200] * len(_oti_kr_dates),
-             "lineStyle": {"color": "#F39C12", "width": 1, "type": "dotted"}, "itemStyle": {"color": "#F39C12"}, "symbol": "none"},
-            {"name": "WALK AWAY(500)", "type": "line", "smooth": False, "data": [500] * len(_oti_kr_dates),
-             "lineStyle": {"color": "#E74C3C", "width": 1, "type": "dotted"}, "itemStyle": {"color": "#E74C3C"}, "symbol": "none"},
-        ]
-        _st_ec({"backgroundColor": "#1a1a2e",
-                "xAxis": {"type": "category", "data": _oti_kr_dates, "axisLabel": {"color": "#AAA"}, "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}}},
-                "yAxis": {"type": "value", "axisLabel": {"color": "#AAA"}, "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}}, "name": "OTI", "nameTextStyle": {"color": "#AAA"}},
-                "series": _oti_kr_series,
-                "tooltip": {"trigger": "axis"},
-                "legend": {"show": False},
-                "grid": {"left": 50, "right": 20, "top": 10, "bottom": 30},
-               }, height="250px")
+        if not _r_oti_hist_kr.empty:
+            _oti_df = _r_oti_hist_kr.copy()
+            _oti_df["날짜"] = pd.to_datetime(_oti_df["날짜"])
+            _oti_max = max(int(_oti_df["OTI"].max()) + 50, 250)
+            # OTI 메인 라인
+            _oti_line = alt.Chart(_oti_df).mark_line(interpolate="monotone", strokeWidth=3).encode(
+                x=alt.X("날짜:T", axis=alt.Axis(format="%m/%d", labelColor="#AAA", title=None)),
+                y=alt.Y("OTI:Q", scale=alt.Scale(domain=[0, _oti_max]), axis=alt.Axis(labelColor="#AAA", title=None)),
+            ).properties(height=250)
+            # 기준선
+            _ref_data = pd.DataFrame([
+                {"값": 100, "라벨": "정상", "색상": "#666666"},
+                {"값": 200, "라벨": "주의", "색상": "#F39C12"},
+                {"값": 500, "라벨": "WALK AWAY", "색상": "#E74C3C"},
+            ])
+            _ref_lines = alt.Chart(_ref_data).mark_rule(strokeDash=[6, 4], strokeWidth=1).encode(
+                y="값:Q",
+                color=alt.Color("색상:N", scale=None),
+            )
+            _ref_labels = alt.Chart(_ref_data).mark_text(align="left", dx=5, dy=-5, fontSize=10).encode(
+                y="값:Q",
+                text="라벨:N",
+                color=alt.Color("색상:N", scale=None),
+            )
+            # OTI 라인 색상 적용
+            _oti_line = _oti_line.encode(color=alt.value("#D92B2B"))
+            _oti_chart = (_oti_line + _ref_lines + _ref_labels).configure_view(
+                fill="#1a1a2e", stroke=None
+            ).configure(background="#1a1a2e")
+            st.altair_chart(_oti_chart, use_container_width=True)
 
         st.divider()
 
@@ -4320,11 +4341,18 @@ def show_portfolio():
             _rk_align = _trend_alignment(int(_ms_kr.iloc[-1]["시장점수"]) if not _ms_kr.empty else 50, _r_kr_exp, _r_oti_kr["oti"])
             st.metric("익스포져", f"{_r_kr_exp}%", _rk_align)
 
-        _rk_ms_dates = [pd.Timestamp(d).strftime("%m/%d") for d in _ms_kr["날짜"]] if not _ms_kr.empty else []
-        _rk_ms_vals = _ms_kr["시장점수"].tolist() if not _ms_kr.empty else []
-        _rk_exp_dates = [pd.Timestamp(d).strftime("%m/%d") for d in _r_kr_exp_hist["날짜"]] if not _r_kr_exp_hist.empty else []
-        _rk_exp_vals = _r_kr_exp_hist["익스포져"].tolist() if not _r_kr_exp_hist.empty else []
-        _rk_dates = _rk_ms_dates if len(_rk_ms_dates) >= len(_rk_exp_dates) else _rk_exp_dates
+        # 날짜 기준 merge (거래일 vs 달력일 불일치 해소)
+        _ms_kr_merge = _ms_kr[["날짜", "시장점수"]].copy() if not _ms_kr.empty else pd.DataFrame(columns=["날짜", "시장점수"])
+        _exp_kr_merge = _r_kr_exp_hist[["날짜", "익스포져"]].copy() if not _r_kr_exp_hist.empty else pd.DataFrame(columns=["날짜", "익스포져"])
+        _ms_kr_merge["날짜"] = pd.to_datetime(_ms_kr_merge["날짜"]).dt.strftime("%Y-%m-%d")
+        _exp_kr_merge["날짜"] = pd.to_datetime(_exp_kr_merge["날짜"]).dt.strftime("%Y-%m-%d")
+        _rk_merged = pd.merge(_ms_kr_merge, _exp_kr_merge, on="날짜", how="outer").sort_values("날짜")
+        _rk_merged["시장점수"] = _rk_merged["시장점수"].ffill()
+        _rk_merged["익스포져"] = _rk_merged["익스포져"].ffill()
+        _rk_merged = _rk_merged.dropna()
+        _rk_dates = [pd.Timestamp(d).strftime("%m/%d") for d in _rk_merged["날짜"]]
+        _rk_ms_vals = _rk_merged["시장점수"].tolist()
+        _rk_exp_vals = _rk_merged["익스포져"].tolist()
         _rk_series = [
             {"name": "시장점수", "type": "line", "smooth": True, "data": _rk_ms_vals,
              "lineStyle": {"color": "#D92B2B", "width": 2}, "itemStyle": {"color": "#D92B2B"}, "symbol": "none"},
@@ -4335,14 +4363,16 @@ def show_portfolio():
             {"name": "30", "type": "line", "smooth": False, "data": [30] * len(_rk_dates),
              "lineStyle": {"color": "#444", "width": 1, "type": "dotted"}, "itemStyle": {"color": "#444"}, "symbol": "none"},
         ]
-        _st_ec({"backgroundColor": "#1a1a2e",
-                "xAxis": {"type": "category", "data": _rk_dates, "axisLabel": {"color": "#AAA"}, "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}}},
-                "yAxis": {"type": "value", "min": 0, "max": 105, "axisLabel": {"color": "#AAA"}, "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}}, "name": "점수 / 익스포져(%)", "nameTextStyle": {"color": "#AAA"}},
-                "series": _rk_series,
-                "tooltip": {"trigger": "axis"},
-                "legend": {"show": True, "data": ["시장점수", "익스포져"], "textStyle": {"color": "#AAA"}, "orient": "horizontal", "left": 0, "top": 0},
-                "grid": {"left": 50, "right": 20, "top": 30, "bottom": 30},
-               }, height="250px")
+        _mk_kr_option = {
+            "backgroundColor": "#1a1a2e",
+            "xAxis": {"type": "category", "data": _rk_dates, "axisLabel": {"color": "#AAA"}, "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}}},
+            "yAxis": {"type": "value", "min": 0, "max": 105, "axisLabel": {"color": "#AAA"}, "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.08)"}}},
+            "series": _rk_series,
+            "tooltip": {"trigger": "axis"},
+            "legend": {"show": True, "data": ["시장점수", "익스포져"], "textStyle": {"color": "#AAA"}, "orient": "horizontal", "right": 0, "top": 0},
+            "grid": {"left": 50, "right": 20, "top": 30, "bottom": 30},
+        }
+        _st_ec(options=_mk_kr_option, height="250px", key="market_exposure_kr")
 
         st.divider()
 

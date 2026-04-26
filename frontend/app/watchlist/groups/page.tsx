@@ -168,7 +168,7 @@ export default function WatchlistGroupsPage() {
             <span className="ml-2 text-xs">그룹: <span className={chartData.group_ret >= 0 ? "text-red-400" : "text-teal-400"}>{chartData.group_ret >= 0 ? "+" : ""}{chartData.group_ret}%</span></span>
             <span className="ml-2 text-xs">벤치마크: <span className={chartData.bench_ret >= 0 ? "text-red-400" : "text-teal-400"}>{chartData.bench_ret >= 0 ? "+" : ""}{chartData.bench_ret}%</span></span>
           </h2>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* 그룹지수 vs 벤치마크 */}
             <div className="bg-[#0f1318] border border-gray-800/60 rounded-xl overflow-hidden">
               <ReactECharts style={{ height: 280 }} option={{
@@ -213,7 +213,7 @@ export default function WatchlistGroupsPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-6 mt-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
         {/* 좌측: 그룹 선택 + 종목 목록 */}
         <div className="col-span-2">
           {groupNames.length > 0 ? (

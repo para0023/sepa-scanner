@@ -23,7 +23,7 @@ app = FastAPI(
 # CORS — React 개발 서버(3000)에서 접근 허용
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

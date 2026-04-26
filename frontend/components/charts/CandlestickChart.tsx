@@ -244,7 +244,7 @@ export default function CandlestickChart({ data }: { data: ChartData }) {
     // 5) RS
     const cRS = mk(refs.rs.current!, 80);
     const sRS = cRS.addSeries(LineSeries, {
-      color: "#FF6D00", lineWidth: 1.5,
+      color: "#FF6D00", lineWidth: 2 as any,
       priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: true,
     });
     sRS.setData(dates.map((d, i) => ({ time: d, value: data.rs.line[i] })).filter((p) => p.value !== null) as any[]);

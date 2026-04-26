@@ -22,7 +22,7 @@ export default function RootLayout({
     <html lang="ko" className={`${mono.variable} h-full antialiased dark`}>
       <body className="min-h-full flex bg-[#0d1117] text-gray-200">
         <Sidebar />
-        <main className="flex-1 ml-56 p-6 overflow-auto">{children}</main>
+        <main className="flex-1 md:ml-56 p-4 md:p-6 pt-14 md:pt-6 overflow-auto">{children}</main>
       </body>
     </html>
   );

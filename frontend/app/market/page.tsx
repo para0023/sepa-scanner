@@ -147,7 +147,7 @@ export default function MarketPage() {
         <div>
           {/* 주요 지수 */}
           <h2 className="text-sm text-gray-500 mb-2">주요 지수</h2>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <IndicatorChart data={d("코스피")} title="코스피" decimal={2} />
               <IndicatorChart data={d("코스닥")} title="코스닥" decimal={2} />
@@ -162,7 +162,7 @@ export default function MarketPage() {
           {(d("외국인(유가)") || d("외국인(코스닥)")) && (
             <>
               <h2 className="text-sm text-gray-500 mb-2 mt-6">외국인 수급</h2>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <IndicatorChart data={d("외국인(유가)")} title="외국인 순매수 - 유가증권 (억원)" decimal={0} />
                   <IndicatorChart data={d("외국인(유가)_cum")} title="외국인 누적 순매수 - 유가증권 (억원)" decimal={0} />
@@ -177,7 +177,7 @@ export default function MarketPage() {
 
           {/* 금리 */}
           <h2 className="text-sm text-gray-500 mb-2 mt-6">금리</h2>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <IndicatorChart data={d("KR10Y")} title="한국 국고채 10년물" decimal={3} />
               <IndicatorChart data={d("KR2Y")} title="한국 국고채 2년물" decimal={3} />
@@ -194,7 +194,7 @@ export default function MarketPage() {
 
           {/* 변동성 */}
           <h2 className="text-sm text-gray-500 mb-2 mt-6">변동성</h2>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <IndicatorChart data={d("VIX")} title="VIX (S&P500 변동성)" decimal={2} />
               {lastVal("VIX") !== null && <VixStatus value={lastVal("VIX")!} />}
@@ -204,14 +204,14 @@ export default function MarketPage() {
 
           {/* 환율 */}
           <h2 className="text-sm text-gray-500 mb-2 mt-6">환율</h2>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <IndicatorChart data={d("USD/KRW")} title="USD/KRW (원/달러)" decimal={2} />
             <IndicatorChart data={d("DXY")} title="달러 인덱스 (DXY)" decimal={2} />
           </div>
 
           {/* 원자재 */}
           <h2 className="text-sm text-gray-500 mb-2 mt-6">원자재</h2>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <IndicatorChart data={d("WTI")} title="WTI 원유 ($/bbl)" unit="$" decimal={2} />
               <IndicatorChart data={d("Gold")} title="금 ($/oz)" unit="$" decimal={2} />

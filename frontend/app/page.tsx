@@ -100,7 +100,7 @@ export default function Dashboard() {
         </div>
         {indicesLoading && <span className="text-blue-400 animate-pulse text-xs">조회 중...</span>}
       </div>
-      <div className="grid grid-cols-4 gap-3 mb-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         {["코스피", "코스닥", "S&P500", "나스닥"].map((label) => {
           const d = idx[label];
           return d ? <MetricCard key={label} label={label} price={d.price} change={d.change} changePct={d.change_pct} />
@@ -109,7 +109,7 @@ export default function Dashboard() {
       </div>
 
       {/* 매크로 */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         {[{ key: "USD/KRW", label: "원/달러" }, { key: "DXY", label: "DXY" }, { key: "WTI", label: "WTI" }, { key: "Gold", label: "Gold" }].map(({ key, label }) => {
           const d = idx[key];
           return d ? <MetricCard key={key} label={label} price={d.price} change={d.change} changePct={d.change_pct} />
@@ -119,7 +119,7 @@ export default function Dashboard() {
 
       {/* Risk — OTI + 시장점수 */}
       <h2 className="text-sm text-gray-500 mb-2">Risk</h2>
-      <div className="grid grid-cols-2 gap-3 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
         {(["KR", "US"] as const).map((m) => {
           const o = oti[m];
           return (
@@ -135,7 +135,7 @@ export default function Dashboard() {
       </div>
 
       {/* 보유 포트폴리오 + 손절 근접 */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         {/* 보유 종목 */}
         <div className="col-span-2">
           <h2 className="text-sm text-gray-500 mb-2">보유 포트폴리오{pricesLoading && <span className="ml-2 text-blue-400 animate-pulse text-xs">현재가 조회 중...</span>}</h2>

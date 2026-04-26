@@ -122,7 +122,7 @@ function WeeklyReviewTab({ market, currency }: { market: "KR" | "US"; currency: 
         <div>
           {/* 1. 포트폴리오 현황 */}
           <h3 className="text-sm font-bold text-white mb-2">포트폴리오 현황</h3>
-          <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
             <KpiCard label="주초 평가" value={`${fmt(review.week_start_val || 0)}${currency}`} />
             <KpiCard label="주말 평가" value={`${fmt(review.week_end_val || 0)}${currency}`}
               sub={`${(review.week_end_val || 0) - (review.week_start_val || 0) >= 0 ? "+" : ""}${fmt((review.week_end_val || 0) - (review.week_start_val || 0))}${currency}`} />
@@ -134,7 +134,7 @@ function WeeklyReviewTab({ market, currency }: { market: "KR" | "US"; currency: 
           {review.summary && (
             <>
               <h3 className="text-sm font-bold text-white mb-2">거래현황</h3>
-              <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
                 <KpiCard label="총거래수" value={`${review.summary["총거래수"] || 0}건`}
                   sub={`${review.summary["승"] || 0}승 ${review.summary["패"] || 0}패`} />
                 <KpiCard label="승률" value={`${(review.summary["승률(%)"] || 0).toFixed(1)}%`} />
@@ -285,7 +285,7 @@ function BalanceTab({ market, currency, onReload }: { market: "KR" | "US"; curre
     <div>
       {/* 입출금 입력 */}
       <h3 className="text-sm font-bold text-white mb-3">원금 입출금 관리</h3>
-      <div className="grid grid-cols-4 gap-3 mb-2 text-sm">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2 text-sm">
         <input type="date" value={flowForm.date} onChange={(e) => setFlowForm({ ...flowForm, date: e.target.value })}
           className="bg-[#0d1117] border border-gray-700 rounded px-2 py-1.5 text-white" />
         <select value={flowForm.type} onChange={(e) => setFlowForm({ ...flowForm, type: e.target.value })}
@@ -350,7 +350,7 @@ function BalanceTab({ market, currency, onReload }: { market: "KR" | "US"; curre
       <p className="text-xs text-gray-600 mb-3">증권사 예수금(주문가능금액)과 시스템 추정 예수금의 차이를 조정합니다. 보유종목 평가와 무관하게 비교할 수 있습니다.</p>
 
       {sysBalance && (
-        <div className="grid grid-cols-3 gap-3 mb-3">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
           <div className="bg-[#161b22] rounded-lg p-3 border border-gray-800">
             <p className="text-xs text-gray-500">시스템 추정 예수금</p>
             <p className="text-lg font-bold text-white">{fmt(sysBalance.deposit)}{currency}</p>
@@ -873,7 +873,7 @@ export default function PortfolioPage() {
         </div>
 
         {/* 통계 카드 */}
-        <div className="grid grid-cols-4 gap-3 mt-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
           <KpiCard label="평균수익률" value={`${mean >= 0 ? "+" : ""}${mean.toFixed(2)}%`} color={mean >= 0 ? "text-red-400" : "text-teal-400"} />
           <KpiCard label="표준편차" value={`${std.toFixed(2)}%`} />
           <KpiCard label="최대" value={`${maxRet >= 0 ? "+" : ""}${maxRet.toFixed(2)}%`} color="text-red-400" />
@@ -1114,7 +1114,7 @@ export default function PortfolioPage() {
         <div>
           {/* 요약 카드 */}
           {positions.length > 0 && (
-            <div className="grid grid-cols-4 gap-3 mb-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
               <KpiCard label="총 투자금액" value={`${fmt(totalCost)}${currency}`} />
               <KpiCard label="총 평가금액" value={`${fmt(totalEval)}${currency}`} />
               <KpiCard label="평가손익" value={`${totalUnreal >= 0 ? "+" : ""}${fmt(totalUnreal)}${currency}`}
@@ -1148,7 +1148,7 @@ export default function PortfolioPage() {
           {showBuyForm && (
             <div className="bg-[#161b22] rounded-lg p-4 border border-gray-800 mt-3">
               <h3 className="text-sm font-bold text-white mb-3">매수 입력</h3>
-              <div className="grid grid-cols-4 gap-3 text-sm">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                 <input placeholder="종목코드" value={buyForm.ticker} onChange={(e) => setBuyForm({ ...buyForm, ticker: e.target.value })}
                   className="bg-[#0d1117] border border-gray-700 rounded px-2 py-1.5 text-white" />
                 <input placeholder="종목명" value={buyForm.name} onChange={(e) => setBuyForm({ ...buyForm, name: e.target.value })}
@@ -1192,7 +1192,7 @@ export default function PortfolioPage() {
           {showSellForm && (
             <div className="bg-[#161b22] rounded-lg p-4 border border-gray-800 mt-3">
               <h3 className="text-sm font-bold text-white mb-3">매도 입력</h3>
-              <div className="grid grid-cols-4 gap-3 text-sm">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                 <select value={sellForm.position_id} onChange={(e) => setSellForm({ ...sellForm, position_id: e.target.value })}
                   className="bg-[#0d1117] border border-gray-700 rounded px-2 py-1.5 text-white col-span-2">
                   <option value="">종목 선택</option>
@@ -1263,7 +1263,7 @@ export default function PortfolioPage() {
             <h2 className="text-sm text-gray-500 mb-2">시장 추세 vs 익스포져</h2>
 
             {/* 현재 지표 카드 */}
-            <div className="grid grid-cols-3 gap-3 mb-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
               <div className="bg-[#161b22] rounded-lg p-3 border border-gray-800">
                 <p className="text-xs text-gray-500">시장점수</p>
                 <p className="text-xl font-bold text-white">{curScore}</p>
@@ -1336,27 +1336,27 @@ export default function PortfolioPage() {
             return (
               <>
                 {/* KPI 4행 × 3열 = 12개 */}
-                <div className="grid grid-cols-3 gap-3 mb-2">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-2">
                   <KpiCard label="총 실현손익 (비용차감)" value={`${fmt(kpi.totalNet)}${currency}`}
                     sub={`거래비용 ${fmt(kpi.totalFees)}${currency}`}
                     color={kpi.totalNet >= 0 ? "text-red-400" : "text-teal-400"} />
                   <KpiCard label="거래 건수" value={`${kpi.count}건`} />
                   <KpiCard label="승 / 패" value={`${kpi.wins}승 ${kpi.losses}패`} />
                 </div>
-                <div className="grid grid-cols-3 gap-3 mb-2">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-2">
                   <KpiCard label="승률" value={`${kpi.winRate.toFixed(1)}%`} />
                   <KpiCard label="승리 시 평균수익률" value={`${kpi.wAvgWin >= 0 ? "+" : ""}${kpi.wAvgWin.toFixed(2)}%`} />
                   <KpiCard label="패배 시 평균손실률" value={`${kpi.wAvgLoss.toFixed(2)}%`}
                     sub={lossVsPlan != null ? (lossVsPlan > 0 ? `목표보다 ${Math.abs(lossVsPlan).toFixed(2)}%p 절약` : `목표보다 ${Math.abs(lossVsPlan).toFixed(2)}%p 초과`) : undefined} />
                 </div>
-                <div className="grid grid-cols-3 gap-3 mb-2">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-2">
                   <KpiCard label="목표손절 위반" value={`${kpi.violations}회`}
                     sub={`위반율 ${kpi.violationRate.toFixed(1)}%`} />
                   <KpiCard label="전체 평균수익률 (가중)" value={`${kpi.wAvgRet >= 0 ? "+" : ""}${kpi.wAvgRet.toFixed(2)}%`} />
                   <KpiCard label="자산회전율" value={kpi.turnover != null ? `${kpi.turnover.toFixed(2)}배` : "-"}
                     sub={kpi.capitalRet != null ? `원금대비 ${kpi.capitalRet >= 0 ? "+" : ""}${kpi.capitalRet.toFixed(2)}%` : undefined} />
                 </div>
-                <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
                   <KpiCard label="평균 R/R" value={kpi.avgRR != null ? kpi.avgRR.toFixed(2) : "-"} />
                   <KpiCard label="수익 시 평균보유기간" value={kpi.avgHoldWin != null ? `${kpi.avgHoldWin.toFixed(0)}일` : "-"} />
                   <KpiCard label="손실 시 평균보유기간" value={kpi.avgHoldLoss != null ? `${kpi.avgHoldLoss.toFixed(0)}일` : "-"} />
@@ -1409,19 +1409,19 @@ export default function PortfolioPage() {
             if (!kpi) return <p className="text-gray-600 py-4">실현된 종목이 없습니다.</p>;
             return (
               <>
-                <div className="grid grid-cols-3 gap-3 mb-2">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-2">
                   <KpiCard label="총 실현손익 (비용차감)" value={`${fmt(kpi.totalNet)}${currency}`}
                     sub={`거래비용 ${fmt(kpi.totalFees)}${currency}`}
                     color={kpi.totalNet >= 0 ? "text-red-400" : "text-teal-400"} />
                   <KpiCard label="종목 수" value={`${kpi.count}종목`} sub={`${kpi.wins}승 ${kpi.losses}패`} />
                   <KpiCard label="승률" value={`${kpi.winRate.toFixed(1)}%`} />
                 </div>
-                <div className="grid grid-cols-3 gap-3 mb-2">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-2">
                   <KpiCard label="승리 시 평균수익률" value={`${kpi.wAvgWin >= 0 ? "+" : ""}${kpi.wAvgWin.toFixed(2)}%`} />
                   <KpiCard label="패배 시 평균손실률" value={`${kpi.wAvgLoss.toFixed(2)}%`} />
                   <KpiCard label="전체 평균수익률 (가중)" value={`${kpi.wAvgRet >= 0 ? "+" : ""}${kpi.wAvgRet.toFixed(2)}%`} />
                 </div>
-                <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
                   <KpiCard label="평균 R/R" value={kpi.avgRR != null ? kpi.avgRR.toFixed(2) : "-"} />
                   <KpiCard label="자산회전율" value={kpi.turnover != null ? `${kpi.turnover.toFixed(2)}배` : "-"} />
                   <KpiCard label="원금대비 실현수익률" value={kpi.capitalRet != null ? `${kpi.capitalRet >= 0 ? "+" : ""}${kpi.capitalRet.toFixed(2)}%` : "-"} />

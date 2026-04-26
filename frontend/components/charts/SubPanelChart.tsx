@@ -68,8 +68,7 @@ export default function SubPanelChart({
         horzLine: { visible: false },
         vertLine: { visible: true, color: "rgba(255,255,255,0.1)", style: 2 },
       },
-      watermark: { visible: false },
-    });
+    } as any);
 
     chartRef.current = chart;
 
