@@ -28,7 +28,10 @@ function MetricCard({ label, price, change, changePct }: {
   );
 }
 
-function fmt(n: number) { return n.toLocaleString("ko-KR", { maximumFractionDigits: 0 }); }
+function fmt(n: number) {
+  if (n % 1 !== 0) return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return n.toLocaleString("ko-KR", { maximumFractionDigits: 0 });
+}
 
 export default function Dashboard() {
   const router = useRouter();

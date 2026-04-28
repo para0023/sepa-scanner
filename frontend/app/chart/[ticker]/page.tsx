@@ -198,9 +198,9 @@ export default function ChartPage() {
   const lastSell = m ? m.signals.sell[m.signals.sell.length - 1] : 0;
 
   return (
-    <div>
+    <div className="max-w-full overflow-x-hidden">
       {/* 헤더 */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-4 gap-2">
         <div>
           <h1 className="text-2xl font-bold text-white">
             {data ? `${data.info.name} (${data.info.ticker})` : ticker}
@@ -246,6 +246,9 @@ export default function ChartPage() {
             <p className="text-xs text-gray-500">종목 수익률 ({period}일)</p>
             <p className={`text-xl font-bold ${m.rs.stock_return >= 0 ? "text-red-400" : "text-blue-400"}`}>
               {m.rs.stock_return > 0 ? "+" : ""}{m.rs.stock_return}%
+            </p>
+            <p className="text-xs text-gray-600 mt-0.5">
+              벤치마크 <span className={m.rs.index_return >= 0 ? "text-red-400" : "text-blue-400"}>{m.rs.index_return > 0 ? "+" : ""}{m.rs.index_return}%</span>
             </p>
           </div>
           <div className="bg-[#161b22] rounded-lg p-3 border border-gray-800">

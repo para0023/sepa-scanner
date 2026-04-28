@@ -55,7 +55,10 @@ const MONTHLY_COLUMNS = [
   { key: "누적손익", label: "누적손익", align: "right" as const, format: "price" as const },
 ];
 
-function fmt(n: number) { return n.toLocaleString("ko-KR", { maximumFractionDigits: 0 }); }
+function _fmt(n: number, ccy?: string) {
+  if (ccy === "$") return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return n.toLocaleString("ko-KR", { maximumFractionDigits: 0 });
+}
 
 function KpiCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
   return (
@@ -68,6 +71,7 @@ function KpiCard({ label, value, sub, color }: { label: string; value: string; s
 }
 
 function WeeklyReviewTab({ market, currency }: { market: "KR" | "US"; currency: string }) {
+  const fmt = (n: number) => _fmt(n, currency);
   const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
   const [weeks, setWeeks] = useState<string[]>([]);
   const [selectedWeek, setSelectedWeek] = useState("");
@@ -226,6 +230,7 @@ function WeeklyReviewTab({ market, currency }: { market: "KR" | "US"; currency: 
 }
 
 function BalanceTab({ market, currency, onReload }: { market: "KR" | "US"; currency: string; onReload: () => void }) {
+  const fmt = (n: number) => _fmt(n, currency);
   const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
   const [capital, setCapital] = useState(0);
   const [flows, setFlows] = useState<any[]>([]);
@@ -519,9 +524,9 @@ function JournalTab() {
                   <p className="text-sm text-gray-300">
                     <span className="font-medium text-white">{p["종목명"]}</span>
                     <span className="text-gray-500 ml-1">({p["종목코드"]})</span>
-                    <span className="text-gray-600 ml-2">매수가: {fmt(p["평균매수가"])}원</span>
-                    <span className="text-gray-600 ml-2">손절가: {fmt(p["손절가"])}원</span>
-                    {p["1차익절가"] > 0 && <span className="text-gray-600 ml-2">익절: {fmt(p["1차익절가"])}원</span>}
+                    <span className="text-gray-600 ml-2">매수가: {_fmt(p["평균매수가"])}원</span>
+                    <span className="text-gray-600 ml-2">손절가: {_fmt(p["손절가"])}원</span>
+                    {p["1차익절가"] > 0 && <span className="text-gray-600 ml-2">익절: {_fmt(p["1차익절가"])}원</span>}
                   </p>
                   <textarea
                     value={memos[p["종목코드"]] || ""}
@@ -659,6 +664,7 @@ export default function PortfolioPage() {
   const [formMsg, setFormMsg] = useState("");
 
   const currency = market === "KR" ? "원" : "$";
+  const fmt = (n: number) => _fmt(n, currency);
 
   const [pricesLoading, setPricesLoading] = useState(false);
   const safe = (p: Promise<any>) => p.catch(() => null);

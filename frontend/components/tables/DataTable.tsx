@@ -24,7 +24,12 @@ function formatCell(value: any, format?: string): string {
   if (value === null || value === undefined) return "—";
   if (format === "number") return Number(value).toLocaleString("ko-KR", { maximumFractionDigits: 2 });
   if (format === "percent") return (Number(value) >= 0 ? "+" : "") + Number(value).toFixed(2) + "%";
-  if (format === "price") return Number(value).toLocaleString("ko-KR", { maximumFractionDigits: 0 });
+  if (format === "price") {
+    const n = Number(value);
+    // 소수점이 있으면 달러(미국주식) → 소수점 2자리
+    if (n % 1 !== 0) return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return n.toLocaleString("ko-KR", { maximumFractionDigits: 0 });
+  }
   return String(value);
 }
 

@@ -29,6 +29,8 @@ interface ChartData {
   vol_ma5?: (number | null)[];
   vol_ma60?: (number | null)[];
   trades: { date: string; type: string; price: number; quantity: number }[];
+  stop_loss?: number | null;
+  take_profit?: number | null;
 }
 
 const MA_COLORS: Record<string, string> = {
@@ -124,9 +126,9 @@ export default function CandlestickChart({ data }: { data: ChartData }) {
         width: w, height: h,
         layout: { background: BG, textColor: "#AAA", attributionLogo: false as any },
         grid: GRID,
-        crosshair: { mode: CrosshairMode.Normal },
-        rightPriceScale: { borderColor: "#333", visible: true, minimumWidth: PRICE_SCALE_WIDTH },
-        leftPriceScale: { visible: false },
+        crosshair: { mode: CrosshairMode.Magnet },
+        rightPriceScale: { borderColor: "#333", visible: true, minimumWidth: PRICE_SCALE_WIDTH, entireTextOnly: true },
+        leftPriceScale: { visible: false, minimumWidth: 0 },
         timeScale: { borderColor: "#333", visible: showTime, timeVisible: false },
       });
     }
@@ -158,13 +160,10 @@ export default function CandlestickChart({ data }: { data: ChartData }) {
     if (data.benchmark_line) {
       const sBench = cMain.addSeries(LineSeries, {
         color: "#5C6BC0", lineWidth: 1, lineStyle: 2,
-        priceScaleId: "benchmark",
+        priceScaleId: "right",
         priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
         priceFormat: { type: "custom", formatter: (p: any) => fmtNum(Number(p)), minMove },
-      });
-      cMain.priceScale("benchmark").applyOptions({
-        scaleMargins: { top: 0.02, bottom: 0.15 },
-        visible: false,
+        autoscaleInfoProvider: () => null,  // 벤치마크가 축 스케일에 영향 안 줌
       });
       sBench.setData(dates.map((d, i) => ({ time: d, value: data.benchmark_line[i] }))
         .filter((p) => p.value != null) as any[]);
@@ -205,8 +204,9 @@ export default function CandlestickChart({ data }: { data: ChartData }) {
           const markerOffset = isBuy ? 6 : 42;
           marker.style.cssText = `
             position: absolute;
-            left: ${x - 8}px;
+            left: ${x}px;
             top: ${isBuy ? yAnchor + markerOffset : yAnchor - markerOffset}px;
+            transform: translateX(-50%);
             z-index: 20;
             pointer-events: auto;
             cursor: default;
@@ -238,6 +238,28 @@ export default function CandlestickChart({ data }: { data: ChartData }) {
       });
       s.setData(dates.map((d, i) => ({ time: d, value: vals[i] })).filter((p) => p.value !== null) as any[]);
     });
+
+    // 손절가 라인 (빨간 점선)
+    if (data.stop_loss && data.stop_loss > 0) {
+      const sSL = cMain.addSeries(LineSeries, {
+        color: "#EF4444", lineWidth: 1, lineStyle: 2,
+        priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false,
+        priceFormat: { type: "custom", formatter: (p: any) => `손절 ${fmtNum(Number(p))}`, minMove },
+        title: "손절",
+      });
+      sSL.setData(dates.map((d) => ({ time: d, value: data.stop_loss! })) as any[]);
+    }
+
+    // 1차 익절가 라인 (노란 점선) — 부분 매도 후 사라짐
+    if (data.take_profit && data.take_profit > 0) {
+      const sTP = cMain.addSeries(LineSeries, {
+        color: "#FBBF24", lineWidth: 1, lineStyle: 2,
+        priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false,
+        priceFormat: { type: "custom", formatter: (p: any) => `1차익절 ${fmtNum(Number(p))}`, minMove },
+        title: "익절",
+      });
+      sTP.setData(dates.map((d) => ({ time: d, value: data.take_profit! })) as any[]);
+    }
 
     // 4) 거래량 (별도 차트) + MA5/MA60
     const cVol = mk(refs.vol.current!, 60);
@@ -323,18 +345,19 @@ export default function CandlestickChart({ data }: { data: ChartData }) {
 
         src.subscribeCrosshairMove((param) => {
           const t = param.time as string | undefined;
-          if (t) {
+          if (t && param.point) {
             setHIdx(dates.indexOf(t));
-            // main 차트의 crosshair 좌표를 사용
-            if (src === cMain && param.point) {
-              const wrapperEl = wrapperRef.current;
+            // 어느 패널에서든 터치/마우스 시 툴팁 좌표 계산
+            const wrapperEl = wrapperRef.current;
+            if (wrapperEl) {
+              // 항상 main 차트 영역 기준으로 위치
               const mainEl = refs.main.current;
-              if (wrapperEl && mainEl) {
+              if (mainEl) {
                 const wrapperRect = wrapperEl.getBoundingClientRect();
                 const mainRect = mainEl.getBoundingClientRect();
                 setTooltipPos({
                   x: param.point.x,
-                  y: mainRect.top - wrapperRect.top + param.point.y,
+                  y: mainRect.top - wrapperRect.top + Math.min(param.point.y, mainRect.height),
                 });
               }
             }
@@ -346,6 +369,41 @@ export default function CandlestickChart({ data }: { data: ChartData }) {
       });
     });
 
+    // 모바일 터치 → 크로스헤어 + 툴팁 (터치 이벤트 직접 처리)
+    const mainEl2 = refs.main.current!;
+    const handleTouch = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      const rect = mainEl2.getBoundingClientRect();
+      const x = touch.clientX - rect.left;
+      const y = touch.clientY - rect.top;
+
+      // x 좌표로 시간 역산
+      const ts = cMain.timeScale();
+      const logical = ts.coordinateToLogical(x);
+      if (logical === null || logical < 0 || logical >= dates.length) return;
+      const dateIdx = Math.round(logical);
+      if (dateIdx < 0 || dateIdx >= dates.length) return;
+
+      setHIdx(dateIdx);
+
+      const wrapperEl = wrapperRef.current;
+      if (wrapperEl) {
+        const wrapperRect = wrapperEl.getBoundingClientRect();
+        setTooltipPos({
+          x: x,
+          y: rect.top - wrapperRect.top + y,
+        });
+      }
+    };
+    const handleTouchEnd = () => {
+      // 터치 끝나면 3초 후 툴팁 숨기기
+      setTimeout(() => { setTooltipPos(null); setHIdx(-1); }, 3000);
+    };
+    mainEl2.addEventListener("touchmove", handleTouch, { passive: true });
+    mainEl2.addEventListener("touchstart", handleTouch, { passive: true });
+    mainEl2.addEventListener("touchend", handleTouchEnd);
+
     // 반응형
     const onResize = () => {
       const nw = refs.main.current?.clientWidth || w;
@@ -355,6 +413,9 @@ export default function CandlestickChart({ data }: { data: ChartData }) {
 
     return () => {
       window.removeEventListener("resize", onResize);
+      mainEl2.removeEventListener("touchmove", handleTouch);
+      mainEl2.removeEventListener("touchstart", handleTouch);
+      mainEl2.removeEventListener("touchend", handleTouchEnd);
       all.forEach((ch) => ch.remove());
       chartsRef.current = [];
     };
@@ -380,7 +441,7 @@ export default function CandlestickChart({ data }: { data: ChartData }) {
   };
 
   return (
-    <div className="border border-gray-800 rounded-lg overflow-hidden relative" ref={wrapperRef}>
+    <div className="border border-gray-800 rounded-lg overflow-hidden relative mx-0 md:mx-0" ref={wrapperRef}>
       {/* MA 범례 (항상 표시) */}
       <div className="bg-[#0d1117] px-3 py-1 flex items-center gap-3 text-[10px] font-mono border-b border-gray-800">
         {Object.entries(MA_COLORS).map(([k, col]) => <span key={k} style={{ color: col }}>{MA_LABELS[k]}</span>)}
@@ -389,7 +450,15 @@ export default function CandlestickChart({ data }: { data: ChartData }) {
       </div>
 
       {/* 플로팅 툴팁 */}
-      <div ref={tooltipRef} style={getTooltipStyle()}
+      <div ref={tooltipRef} style={(() => {
+        if (!tooltipPos || hIdx < 0) return { display: "none" } as React.CSSProperties;
+        const wrapperEl = wrapperRef.current;
+        if (!wrapperEl) return { display: "none" } as React.CSSProperties;
+        const ww = wrapperEl.clientWidth;
+        const tw = tooltipRef.current?.clientWidth || 220;
+        const xPos = tooltipPos.x + 20 + tw > ww ? tooltipPos.x - tw - 20 : tooltipPos.x + 20;
+        return { position: "absolute", left: xPos, top: Math.max(0, tooltipPos.y - 40), zIndex: 40, pointerEvents: "none" } as React.CSSProperties;
+      })()}
         className="bg-[#161b22]/95 border border-gray-700 rounded-lg px-3 py-2 text-xs font-mono shadow-xl backdrop-blur-sm min-w-[200px]">
         <div className="text-gray-400 mb-1.5">{data.ohlcv.dates[idx]}</div>
         {/* 종가 → 고가 → 저가 → 시가 */}

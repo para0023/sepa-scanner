@@ -1,7 +1,7 @@
 """
 /api/portfolio/* — 포트폴리오 CRUD + 분석
 """
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
 
@@ -80,6 +80,21 @@ def get_positions_prices(market: str = Query("KR")):
         prices = dict(zip(tickers, pool.map(_fetch_price, tickers)))
 
     return {"prices": {t: round(p) if p > 0 else None for t, p in prices.items()}}
+
+
+class StopLossUpdate(BaseModel):
+    position_id: str
+    date: str
+    price: float
+    note: str = ""
+
+@router.post("/stop-loss/update")
+def update_stop_loss_api(req: StopLossUpdate, market: str = Query("KR")):
+    """손절가 수정"""
+    _set_market(market)
+    from portfolio import update_stop_loss
+    ok = update_stop_loss(req.position_id, req.date, req.price, req.note)
+    return {"success": ok}
 
 
 @router.get("/reentry-check/{ticker}")
@@ -340,6 +355,11 @@ def get_weekly(market: str = Query("KR"), week: str = Query(None)):
         return {}
     # numpy/pandas 변환
     import json
+    import pandas as pd
+
+    # DataFrame은 제거 (프론트에서 안 씀)
+    if "trades_df" in data:
+        del data["trades_df"]
 
     def _clean(obj):
         if hasattr(obj, "item"):
@@ -348,10 +368,67 @@ def get_weekly(market: str = Query("KR"), week: str = Query(None)):
             return obj.isoformat()
         if isinstance(obj, float) and obj != obj:
             return None
+        if isinstance(obj, pd.DataFrame):
+            return obj.to_dict(orient="records")
+        if isinstance(obj, pd.Timestamp):
+            return obj.strftime("%Y-%m-%d")
         return obj
 
     cleaned = json.loads(json.dumps(data, default=_clean))
     return cleaned
+
+
+@router.get("/weekly/pdf")
+def get_weekly_pdf(market: str = Query("KR"), week: str = Query(None)):
+    """주간 리포트 PDF 생성 + 차트 이미지 자동 생성"""
+    _set_market(market)
+    from portfolio import get_weekly_review
+    from weekly_pdf import generate_weekly_pdf
+    from relative_strength import build_trade_chart_image
+    from fastapi.responses import Response
+    import FinanceDataReader as fdr
+
+    data = get_weekly_review(week)
+    if not data:
+        raise HTTPException(status_code=404, detail="주간 데이터 없음")
+
+    # 차트 이미지 자동 생성
+    chart_imgs = {}
+    all_trades = data.get("entries", []) + data.get("exits", []) + data.get("both", [])
+    for t in all_trades:
+        tk = t["종목코드"]
+        if tk in chart_imgs:
+            continue
+        try:
+            dates = [b["날짜"] for b in t.get("매수", [])] + [s["날짜"] for s in t.get("매도", [])]
+            last_date = max(dates) if dates else week
+            img = build_trade_chart_image(tk, last_date, period=180)
+            if img:
+                chart_imgs[tk] = img
+        except Exception:
+            pass
+
+    # 시장 데이터
+    mkt_data = []
+    try:
+        for label, code in {"코스피": "KS11", "코스닥": "KQ11", "USD/KRW": "USD/KRW", "WTI": "CL=F"}.items():
+            mdf = fdr.DataReader(code, data["week_start"], data["week_end"])
+            if mdf is not None and len(mdf) >= 2:
+                sv = float(mdf["Close"].iloc[0])
+                ev = float(mdf["Close"].iloc[-1])
+                mkt_data.append({"지표": label, "시작": round(sv, 2), "종료": round(ev, 2), "변동률(%)": round((ev / sv - 1) * 100, 2)})
+    except Exception:
+        pass
+
+    currency = "원" if market == "KR" else "$"
+    pdf_bytes = generate_weekly_pdf(data, chart_images=chart_imgs, market_data=mkt_data, currency=currency)
+
+    filename = "weekly_report_%s_%s.pdf" % (market, week or "latest")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=%s" % filename},
+    )
 
 
 class CapitalFlowRequest(BaseModel):

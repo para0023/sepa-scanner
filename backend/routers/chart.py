@@ -90,10 +90,12 @@ def get_chart_data(
     dates = [d.strftime("%Y-%m-%d") for d in stock_trimmed.index]
     name = get_stock_name(ticker, market)
 
-    # 매매 마커 데이터
+    # 매매 마커 + 손절가/익절가
     trades = []
+    stop_loss_price = None
+    take_profit_price = None
     try:
-        from portfolio import _load, set_portfolio_file
+        from portfolio import _load, set_portfolio_file, get_open_positions
         pf = "portfolio_us.json" if market == "US" else "portfolio.json"
         set_portfolio_file(pf)
         pf_data = _load()
@@ -107,6 +109,27 @@ def get_chart_data(
                             "price": t.get("price", 0),
                             "quantity": t.get("quantity", 0),
                         })
+                # 보유 중인 포지션의 손절가/익절가
+                if pos.get("status") == "open":
+                    # 손절가: stop_loss_history 최신 > trades의 마지막 buy > 포지션 최상위
+                    history = pos.get("stop_loss_history", [])
+                    buys = [t for t in pos.get("trades", []) if t["type"] == "buy"]
+                    if history:
+                        sl = history[-1].get("price", 0)
+                    elif buys:
+                        sl = buys[-1].get("stop_loss", 0)
+                    else:
+                        sl = pos.get("stop_loss", 0)
+                    if sl and float(sl) > 0:
+                        stop_loss_price = float(sl)
+
+                    # 익절가: trades의 마지막 buy > 포지션 최상위
+                    tp = buys[-1].get("take_profit", 0) if buys else pos.get("take_profit", 0)
+                    if tp and float(tp) > 0:
+                        # 1차 익절 실행 여부 확인 (매도 이력이 있으면 제거)
+                        sells = [t for t in pos.get("trades", []) if t["type"] == "sell"]
+                        if not sells:
+                            take_profit_price = float(tp)
     except Exception:
         pass
 
@@ -149,6 +172,8 @@ def get_chart_data(
         "vol_ma5": [round(float(x)) if pd.notna(x) else None for x in stock_trimmed["Volume"].rolling(5, min_periods=1).mean().tolist()],
         "vol_ma60": [round(float(x)) if pd.notna(x) else None for x in stock_trimmed["Volume"].rolling(60, min_periods=1).mean().tolist()],
         "trades": trades,
+        "stop_loss": stop_loss_price,
+        "take_profit": take_profit_price,
     }
 
 

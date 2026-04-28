@@ -17,6 +17,8 @@ def get_dashboard_holdings():
 
     for market, pf in [("KR", "portfolio.json"), ("US", "portfolio_us.json")]:
         set_portfolio_file(pf)
+        is_us = market == "US"
+        _r = lambda v: round(v, 2) if is_us else round(v)
 
         try:
             oti[market] = calc_oti(days=3)
@@ -31,7 +33,7 @@ def get_dashboard_holdings():
 
         if df.empty:
             holdings[market] = []
-            assets[market] = {"capital": capital, "cum_pnl": cum_pnl, "unrealized": 0, "total": capital + cum_pnl, "total_ret": 0}
+            assets[market] = {"capital": _r(capital), "cum_pnl": _r(cum_pnl), "unrealized": 0, "total": _r(capital + cum_pnl), "total_ret": 0}
             continue
 
         rows = []
@@ -40,12 +42,12 @@ def get_dashboard_holdings():
             qty = int(r["수량"])
             rows.append({
                 "종목코드": r["종목코드"], "종목명": r["종목명"],
-                "평균매수가": round(avg), "수량": qty, "손절가": round(float(r["손절가"])),
+                "평균매수가": _r(avg), "수량": qty, "손절가": _r(float(r["손절가"])),
                 "현재가": None, "수익률": None, "경과일": int(r["경과일"]),
-                "매수금액": round(avg * qty),
+                "매수금액": _r(avg * qty),
             })
         holdings[market] = rows
-        assets[market] = {"capital": round(capital), "cum_pnl": round(cum_pnl), "unrealized": 0, "total": round(capital + cum_pnl), "total_ret": 0}
+        assets[market] = {"capital": _r(capital), "cum_pnl": _r(cum_pnl), "unrealized": 0, "total": _r(capital + cum_pnl), "total_ret": 0}
 
     set_portfolio_file("portfolio.json")
     return {"oti": oti, "holdings": holdings, "stop_alerts": [], "assets": assets}
@@ -115,6 +117,9 @@ def get_dashboard_prices():
 
     for market, pf in [("KR", "portfolio.json"), ("US", "portfolio_us.json")]:
         set_portfolio_file(pf)
+        is_us = market == "US"
+        _r = lambda v: round(v, 2) if is_us else round(v)
+
         df = get_open_positions()
         capital = get_total_capital()
         pnl_df = get_realized_pnl()
@@ -123,7 +128,7 @@ def get_dashboard_prices():
 
         if df.empty:
             holdings[market] = []
-            assets[market] = {"capital": capital, "cum_pnl": cum_pnl, "unrealized": 0, "total": capital + cum_pnl, "total_ret": 0}
+            assets[market] = {"capital": _r(capital), "cum_pnl": _r(cum_pnl), "unrealized": 0, "total": _r(capital + cum_pnl), "total_ret": 0}
             continue
 
         tickers = df["종목코드"].tolist()
@@ -143,10 +148,10 @@ def get_dashboard_prices():
 
             rows.append({
                 "종목코드": t, "종목명": r["종목명"],
-                "평균매수가": round(avg), "수량": qty, "손절가": round(sl),
-                "현재가": round(cur) if cur > 0 else None,
+                "평균매수가": _r(avg), "수량": qty, "손절가": _r(sl),
+                "현재가": _r(cur) if cur > 0 else None,
                 "수익률": ret_pct, "경과일": int(r["경과일"]),
-                "매수금액": round(avg * qty),
+                "매수금액": _r(avg * qty),
             })
 
             if cur > 0:
@@ -155,8 +160,8 @@ def get_dashboard_prices():
             if sl_dist is not None:
                 stop_alerts.append({
                     "종목코드": t, "시장": market, "종목명": r["종목명"],
-                    "현재가": round(cur) if cur > 0 else None,
-                    "손절가": round(sl),
+                    "현재가": _r(cur) if cur > 0 else None,
+                    "손절가": _r(sl),
                     "손절거리(%)": sl_dist,
                 })
 
@@ -164,8 +169,8 @@ def get_dashboard_prices():
         total_asset = capital + cum_pnl + unrealized
         total_ret = round((total_asset / capital - 1) * 100, 2) if capital > 0 else 0
         assets[market] = {
-            "capital": round(capital), "cum_pnl": round(cum_pnl),
-            "unrealized": round(unrealized), "total": round(total_asset), "total_ret": total_ret,
+            "capital": _r(capital), "cum_pnl": _r(cum_pnl),
+            "unrealized": _r(unrealized), "total": _r(total_asset), "total_ret": total_ret,
         }
 
     stop_alerts.sort(key=lambda x: x.get("손절거리(%)", 999))
