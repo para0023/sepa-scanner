@@ -625,31 +625,38 @@ def calc_oti(days: int = 3) -> dict:
     losses = 0
     details = []
     for pos in data["positions"]:
+        # 완전 청산된 포지션만 대상
+        if pos.get("status") != "closed":
+            continue
         buys = [t for t in pos["trades"] if t["type"] == "buy"]
         sells = [t for t in pos["trades"] if t["type"] == "sell"]
         if not buys or not sells:
             continue
 
-        last_buy = max(t["date"] for t in buys)
+        first_buy = min(t["date"] for t in buys)
         last_sell = max(t["date"] for t in sells)
 
-        if last_buy >= cutoff and last_sell >= cutoff:
-            buy_dt = pd.to_datetime(last_buy)
-            sell_dt = pd.to_datetime(last_sell)
-            hold_days = (sell_dt - buy_dt).days
-            if hold_days <= days:
-                avg_buy = sum(t["price"] * t["quantity"] for t in buys) / sum(t["quantity"] for t in buys)
-                avg_sell = sum(t["price"] * t["quantity"] for t in sells) / sum(t["quantity"] for t in sells)
-                pnl_pct = (avg_sell / avg_buy - 1) * 100 if avg_buy > 0 else 0
+        # 청산일이 최근 N일 내인지 확인
+        if last_sell < cutoff:
+            continue
 
-                count += 1
-                if pnl_pct <= 0:
-                    losses += 1
-                details.append({
-                    "종목명": pos["name"],
-                    "보유일": hold_days,
-                    "수익률": round(pnl_pct, 2),
-                })
+        buy_dt = pd.to_datetime(first_buy)
+        sell_dt = pd.to_datetime(last_sell)
+        hold_days = (sell_dt - buy_dt).days
+
+        if hold_days <= days:
+            avg_buy = sum(t["price"] * t["quantity"] for t in buys) / sum(t["quantity"] for t in buys)
+            avg_sell = sum(t["price"] * t["quantity"] for t in sells) / sum(t["quantity"] for t in sells)
+            pnl_pct = (avg_sell / avg_buy - 1) * 100 if avg_buy > 0 else 0
+
+            count += 1
+            if pnl_pct <= 0:
+                losses += 1
+            details.append({
+                "종목명": pos["name"],
+                "보유일": hold_days,
+                "수익률": round(pnl_pct, 2),
+            })
 
     oti = round(100 * (1 + (count / 3) ** 2))
     loss_rate = round(losses / count * 100, 1) if count > 0 else 0

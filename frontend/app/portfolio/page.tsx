@@ -658,9 +658,12 @@ export default function PortfolioPage() {
   // 매수/매도 폼
   const [showBuyForm, setShowBuyForm] = useState(false);
   const [showSellForm, setShowSellForm] = useState(false);
-  const [buyForm, setBuyForm] = useState({ ticker: "", name: "", date: "", price: "", quantity: "", stop_loss: "", entry_reason: "PB", memo: "", take_profit: "" });
+  const [buyForm, setBuyForm] = useState({ ticker: "", name: "", date: new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10), price: "", quantity: "", stop_loss: "", entry_reason: "PB20", memo: "", take_profit: "" });
   const [reentryWarning, setReentryWarning] = useState<any>(null);
-  const [sellForm, setSellForm] = useState({ position_id: "", date: "", price: "", quantity: "", reason: "" });
+  const [buySuggestions, setBuySuggestions] = useState<any[]>([]);
+  const [sellForm, setSellForm] = useState({ position_id: "", date: new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10), price: "", quantity: "", reason: "" });
+  const [showStopForm, setShowStopForm] = useState(false);
+  const [stopForm, setStopForm] = useState({ position_id: "", date: new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10), price: "", note: "" });
   const [formMsg, setFormMsg] = useState("");
 
   const currency = market === "KR" ? "원" : "$";
@@ -1147,6 +1150,10 @@ export default function PortfolioPage() {
               className="px-3 py-1.5 rounded text-sm bg-blue-900/30 text-blue-400 hover:bg-blue-900/50 border border-blue-900/50">
               {showSellForm ? "▼ 매도 접기" : "▶ 매도 입력"}
             </button>
+            <button onClick={() => setShowStopForm(!showStopForm)}
+              className="px-3 py-1.5 rounded text-sm bg-yellow-900/30 text-yellow-400 hover:bg-yellow-900/50 border border-yellow-900/50">
+              {showStopForm ? "▼ 손절가 접기" : "▶ 손절가 수정"}
+            </button>
           </div>
 
           {formMsg && <p className="text-xs text-yellow-400 mt-2">{formMsg}</p>}
@@ -1156,23 +1163,44 @@ export default function PortfolioPage() {
             <div className="bg-[#161b22] rounded-lg p-4 border border-gray-800 mt-3">
               <h3 className="text-sm font-bold text-white mb-3">매수 입력</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                <input placeholder="종목코드" value={buyForm.ticker} onChange={(e) => {
-                    const t = e.target.value;
-                    setBuyForm({ ...buyForm, ticker: t });
-                    setReentryWarning(null);
-                    if (t.trim().length >= 2) {
-                      fetch(`${process.env.NEXT_PUBLIC_API_URL || `http://${typeof window !== "undefined" ? window.location.hostname : "localhost"}:8000/api`}/portfolio/reentry-check/${t.trim().toUpperCase()}?market=${market}`)
-                        .then((r) => r.json()).then(setReentryWarning).catch(() => {});
-                    }
+                <div className="relative col-span-2">
+                  <input placeholder="종목명 검색" value={buyForm.name} onChange={(e) => {
+                    setBuyForm({ ...buyForm, name: e.target.value });
+                    const q = e.target.value.trim();
+                    if (q.length >= 1) {
+                      fetch(`http://${typeof window !== "undefined" ? window.location.hostname : "localhost"}:8000/api/stocks/search?q=${encodeURIComponent(q)}&limit=8`)
+                        .then((r) => r.json())
+                        .then((items) => setBuySuggestions(items || []))
+                        .catch(() => setBuySuggestions([]));
+                    } else { setBuySuggestions([]); }
                   }}
-                  className="bg-[#0d1117] border border-gray-700 rounded px-2 py-1.5 text-white" />
-                <input placeholder="종목명" value={buyForm.name} onChange={(e) => setBuyForm({ ...buyForm, name: e.target.value })}
-                  className="bg-[#0d1117] border border-gray-700 rounded px-2 py-1.5 text-white" />
+                    className="bg-[#0d1117] border border-gray-700 rounded px-2 py-1.5 text-white w-full" />
+                  {buySuggestions.length > 0 && (
+                    <div className="absolute left-0 right-0 top-full mt-1 bg-[#1c2128] border border-gray-700 rounded shadow-lg max-h-48 overflow-y-auto z-50">
+                      {buySuggestions.map((item: any) => (
+                        <button key={`${item.code}-${item.market}`} onClick={() => {
+                          setBuyForm({ ...buyForm, ticker: item.code, name: item.name });
+                          setBuySuggestions([]);
+                          setReentryWarning(null);
+                          fetch(`http://${typeof window !== "undefined" ? window.location.hostname : "localhost"}:8000/api/portfolio/reentry-check/${item.code}?market=${market}`)
+                            .then((r) => r.json()).then(setReentryWarning).catch(() => {});
+                        }}
+                          className="w-full text-left px-3 py-1.5 hover:bg-[#2d333b] text-sm">
+                          <span className="text-white">{item.name}</span>
+                          <span className="text-gray-500 ml-1.5 text-xs">{item.code}</span>
+                          <span className="text-gray-600 text-[10px] ml-1">{item.market}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <input type="date" value={buyForm.date} onChange={(e) => setBuyForm({ ...buyForm, date: e.target.value })}
                   className="bg-[#0d1117] border border-gray-700 rounded px-2 py-1.5 text-white" />
                 <select value={buyForm.entry_reason} onChange={(e) => setBuyForm({ ...buyForm, entry_reason: e.target.value })}
                   className="bg-[#0d1117] border border-gray-700 rounded px-2 py-1.5 text-white">
-                  <option value="PB">PB</option><option value="HB">HB</option><option value="BO">BO</option>
+                  <option value="PB5">PB5</option><option value="PB20">PB20</option>
+                  <option value="HB5">HB5</option><option value="HB20">HB20</option><option value="HB60">HB60</option><option value="HB100">HB100</option>
+                  <option value="BO">BO</option>
                 </select>
                 <input type="number" placeholder="매수가" value={buyForm.price} onChange={(e) => setBuyForm({ ...buyForm, price: e.target.value })}
                   className="bg-[#0d1117] border border-gray-700 rounded px-2 py-1.5 text-white" />
@@ -1196,7 +1224,7 @@ export default function PortfolioPage() {
                   const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"}/portfolio/buy?market=${market}`, {
                     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
                   });
-                  if (res.ok) { setFormMsg("매수 등록 완료"); setShowBuyForm(false); loadAll(); }
+                  if (res.ok) { setFormMsg("매수 등록 완료"); setShowBuyForm(false); setBuyForm({ ticker: "", name: "", date: new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10), price: "", quantity: "", stop_loss: "", entry_reason: "PB20", memo: "", take_profit: "" }); setReentryWarning(null); setBuySuggestions([]); loadAll(); }
                   else setFormMsg("오류: " + await res.text());
                 } catch (e: any) { setFormMsg("오류: " + e.message); }
               }} className="mt-3 px-4 py-1.5 bg-red-600 hover:bg-red-700 rounded text-sm text-white">매수 등록</button>
@@ -1240,10 +1268,45 @@ export default function PortfolioPage() {
                   const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"}/portfolio/sell?market=${market}`, {
                     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
                   });
-                  if (res.ok) { setFormMsg("매도 등록 완료"); setShowSellForm(false); loadAll(); }
+                  if (res.ok) { setFormMsg("매도 등록 완료"); setShowSellForm(false); setSellForm({ position_id: "", date: new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10), price: "", quantity: "", reason: "" }); loadAll(); }
                   else setFormMsg("오류: " + await res.text());
                 } catch (e: any) { setFormMsg("오류: " + e.message); }
               }} className="mt-3 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-sm text-white">매도 등록</button>
+            </div>
+          )}
+
+          {/* 손절가 수정 폼 */}
+          {showStopForm && (
+            <div className="bg-[#161b22] rounded-lg p-4 border border-gray-800 mt-3">
+              <h3 className="text-sm font-bold text-white mb-3">손절가 수정</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                <select value={stopForm.position_id} onChange={(e) => setStopForm({ ...stopForm, position_id: e.target.value })}
+                  className="bg-[#0d1117] border border-gray-700 rounded px-2 py-1.5 text-white col-span-2">
+                  <option value="">종목 선택</option>
+                  {positions.map((p) => (
+                    <option key={p["position_id"]} value={p["position_id"]}>
+                      {p["종목명"]} (현재 손절: {market === "KR" ? fmt(p["손절가"]) : "$" + (p["손절가"]?.toFixed(2) || 0)})
+                    </option>
+                  ))}
+                </select>
+                <input type="number" placeholder="새 손절가" value={stopForm.price}
+                  onChange={(e) => setStopForm({ ...stopForm, price: e.target.value })}
+                  className="bg-[#0d1117] border border-gray-700 rounded px-2 py-1.5 text-white" />
+                <input type="date" value={stopForm.date} onChange={(e) => setStopForm({ ...stopForm, date: e.target.value })}
+                  className="bg-[#0d1117] border border-gray-700 rounded px-2 py-1.5 text-white" />
+              </div>
+              <input placeholder="변경 사유 (선택)" value={stopForm.note} onChange={(e) => setStopForm({ ...stopForm, note: e.target.value })}
+                className="bg-[#0d1117] border border-gray-700 rounded px-2 py-1.5 text-white w-full mt-2 text-sm" />
+              <button onClick={async () => {
+                try {
+                  const body = { position_id: stopForm.position_id, date: stopForm.date, price: Number(stopForm.price), note: stopForm.note };
+                  const res = await fetch(`http://${typeof window !== "undefined" ? window.location.hostname : "localhost"}:8000/api/portfolio/stop-loss/update?market=${market}`, {
+                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+                  });
+                  if (res.ok) { setFormMsg("손절가 수정 완료"); setShowStopForm(false); setStopForm({ position_id: "", date: new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10), price: "", note: "" }); loadAll(); }
+                  else setFormMsg("오류: " + await res.text());
+                } catch (e: any) { setFormMsg("오류: " + e.message); }
+              }} className="mt-3 px-4 py-1.5 bg-yellow-600 hover:bg-yellow-700 rounded text-sm text-white">손절가 수정</button>
             </div>
           )}
         </div>
@@ -1265,6 +1328,12 @@ export default function PortfolioPage() {
                   · {d["종목명"]} ({d["보유일"]}일, {d["수익률"] >= 0 ? "+" : ""}{d["수익률"].toFixed(2)}%)
                 </p>
               ))}
+              <div className="mt-3 pt-2 border-t border-gray-800">
+                <p className="text-[10px] text-gray-600 leading-relaxed">
+                  산출: 3일 내 청산 종목 수 × (100 + 손실률 가중치)<br/>
+                  🟢 0~99 정상 · 🟡 100~199 주의 · 🟠 200~499 과매매 · 🔴 500+ WALK AWAY
+                </p>
+              </div>
             </div>
           )}
 
@@ -1305,6 +1374,30 @@ export default function PortfolioPage() {
                 <ReactECharts option={trendChartOption} style={{ height: 260 }} />
               </div>
             )}
+
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="bg-[#161b22] rounded-lg p-3 border border-gray-800">
+                <p className="text-[10px] text-gray-500 font-medium mb-1">시장점수 산출</p>
+                <p className="text-[10px] text-gray-600 leading-relaxed">
+                  MA20 기울기(50%) + 가격위치(30%) + 저점상승(20%)<br/>
+                  기울기: 10일 전 MA20 대비 변화율 → 0~100점<br/>
+                  위치: 종가가 MA20 위면 100, 아래+거래량↓ 50, 아래+거래량↑ 20<br/>
+                  저점: 20일 최저가가 상승 중이면 100, 아니면 30<br/>
+                  🟢 85+ 최적 · 🟢 70+ 양호 · 🟡 50+ 보통 · 🟠 30+ 주의 · 🔴 30미만 위험
+                </p>
+              </div>
+              <div className="bg-[#161b22] rounded-lg p-3 border border-gray-800">
+                <p className="text-[10px] text-gray-500 font-medium mb-1">추세 정합 판정</p>
+                <p className="text-[10px] text-gray-600 leading-relaxed">
+                  시장점수(강/중/약) × 익스포져(고/중/저) → 9칸 매트릭스<br/>
+                  강세+고노출 = 추세 순응 ✅<br/>
+                  약세+고노출 = 추세 역행 🔴<br/>
+                  약세+저노출 = 관망 적정 ✅<br/>
+                  강세+저노출 = 기회 미활용 ⚠️<br/>
+                  익스포져 = 평가액 / (현금+평가액) × 100
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       )}
