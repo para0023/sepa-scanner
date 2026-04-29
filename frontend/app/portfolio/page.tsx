@@ -9,7 +9,7 @@ import LoadingSpinner from "@/components/layout/LoadingSpinner";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
-const TABS = ["보유현황", "위험관리", "거래별성과", "종목별성과", "월별분석", "주간리뷰", "매매일지", "잔액관리", "거래이력"];
+const TABS = ["보유현황", "위험관리", "거래별성과", "종목별성과", "월별분석", "주간리뷰", "매매계획", "잔액관리", "거래이력"];
 
 const POSITION_COLUMNS = [
   { key: "종목코드", label: "종목코드", align: "left" as const },
@@ -416,7 +416,7 @@ function JournalTab() {
   const [viewDate, setViewDate] = useState("");
   const [viewData, setViewData] = useState<any>(null);
 
-  const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+  const API = typeof window !== "undefined" ? `http://${window.location.hostname}:8000/api` : "http://localhost:8000/api";
 
   // 작성 모드: 보유종목 + 기존 일지 로드
   const [jLoading, setJLoading] = useState(false);
@@ -453,9 +453,9 @@ function JournalTab() {
   useEffect(() => {
     if (mode !== "view") return;
     fetchApi<any>("/journal/dates").then((d) => {
-      const list = Array.isArray(d) ? d : (d?.dates || []);
+      const list = (Array.isArray(d) ? d : (d?.dates || [])).sort().reverse();
       setDates(list);
-      if (list.length > 0) setViewDate((prev) => prev || list[list.length - 1]);
+      if (list.length > 0) setViewDate((prev) => prev || list[0]);
     }).catch(() => setDates([]));
   }, [mode]);
 
@@ -595,7 +595,7 @@ function JournalTab() {
           ) : (
             <>
               <div className="flex gap-1 flex-wrap mb-4">
-                {(Array.isArray(dates) ? [...dates] : []).reverse().map((d) => (
+                {(Array.isArray(dates) ? dates : []).map((d) => (
                   <button key={d} onClick={() => setViewDate(d)}
                     className={`px-2.5 py-1 rounded text-xs ${viewDate === d ? "bg-gray-600 text-white" : "bg-[#1f2937] text-gray-500 hover:text-white"}`}>
                     {d}
@@ -1586,12 +1586,20 @@ export default function PortfolioPage() {
           : <p className="text-gray-600 py-4">월별 데이터가 없습니다.</p>
       )}
 
-      {/* ═══ 매매일지 (한국+미국 동시) ═══ */}
+      {/* ═══ 매매계획 (한국+미국 동시) ═══ */}
       {/* ═══ 주간 리뷰 ═══ */}
       {!loading && tab === 5 && <WeeklyReviewTab market={market} currency={currency} />}
 
-      {/* ═══ 매매일지 ═══ */}
-      {tab === 6 && <JournalTab />}
+      {/* ═══ 매매계획 ═══ */}
+      {tab === 6 && (
+        <div>
+          <button onClick={() => window.open("/journal", "_blank", "width=600,height=800")}
+            className="mb-4 px-3 py-1.5 rounded text-sm bg-[#1f2937] text-gray-400 hover:text-white border border-gray-700">
+            새 창으로 열기
+          </button>
+          <JournalTab />
+        </div>
+      )}
 
       {/* ═══ 잔액관리 ═══ */}
       {!loading && tab === 7 && <BalanceTab market={market} currency={currency} onReload={loadAll} />}

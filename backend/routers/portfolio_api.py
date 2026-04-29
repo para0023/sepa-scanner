@@ -79,7 +79,8 @@ def get_positions_prices(market: str = Query("KR")):
     with ThreadPoolExecutor(max_workers=8) as pool:
         prices = dict(zip(tickers, pool.map(_fetch_price, tickers)))
 
-    return {"prices": {t: round(p) if p > 0 else None for t, p in prices.items()}}
+    is_us = market == "US"
+    return {"prices": {t: (round(p, 2) if is_us else round(p)) if p > 0 else None for t, p in prices.items()}}
 
 
 class StopLossUpdate(BaseModel):
