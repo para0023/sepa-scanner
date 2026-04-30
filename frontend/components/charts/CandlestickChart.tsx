@@ -156,14 +156,17 @@ export default function CandlestickChart({ data }: { data: ChartData }) {
       low: data.ohlcv.low[i], close: data.ohlcv.close[i],
     })) as any);
 
-    // 벤치마크 라인 (별도 축, 점선)
+    // 벤치마크 라인 (왼쪽 축, 독립 스케일)
     if (data.benchmark_line) {
+      cMain.priceScale("left").applyOptions({
+        visible: false,
+        scaleMargins: { top: 0.1, bottom: 0.1 },
+      });
       const sBench = cMain.addSeries(LineSeries, {
         color: "#5C6BC0", lineWidth: 1, lineStyle: 2,
-        priceScaleId: "right",
+        priceScaleId: "left",
         priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-        priceFormat: { type: "custom", formatter: (p: any) => fmtNum(Number(p)), minMove },
-        autoscaleInfoProvider: () => null,  // 벤치마크가 축 스케일에 영향 안 줌
+        priceFormat: { type: "custom", formatter: () => "", minMove },
       });
       sBench.setData(dates.map((d, i) => ({ time: d, value: data.benchmark_line[i] }))
         .filter((p) => p.value != null) as any[]);

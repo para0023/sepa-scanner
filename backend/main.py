@@ -77,10 +77,11 @@ def search_stocks(q: str = "", limit: int = 20):
     items = _load_stock_list()
     q_upper = q.upper()
     q_lower = q.lower()
-    results = []
-    for item in items:
-        if q_upper in item["code"].upper() or q_lower in item["name"].lower():
-            results.append(item)
-            if len(results) >= limit:
-                break
+    # 1순위: 코드 정확 매칭
+    exact = [item for item in items if item["code"].upper() == q_upper]
+    # 2순위: 코드 시작 매칭
+    starts = [item for item in items if item["code"].upper().startswith(q_upper) and item not in exact]
+    # 3순위: 이름/코드 부분 매칭
+    partial = [item for item in items if (q_upper in item["code"].upper() or q_lower in item["name"].lower()) and item not in exact and item not in starts]
+    results = (exact + starts + partial)[:limit]
     return results

@@ -33,7 +33,7 @@ const LOG_COLUMNS = [
   { key: "price", label: "가격", align: "right" as const, format: "price" as const },
   { key: "quantity", label: "수량", align: "right" as const },
   { key: "entry_reason", label: "근거", align: "center" as const },
-  { key: "memo", label: "메모", align: "left" as const },
+  { key: "_memo", label: "메모", align: "left" as const },
 ];
 
 const PNL_COLUMNS = [
@@ -681,7 +681,10 @@ export default function PortfolioPage() {
       safe(fetchApi(`/portfolio/trade-log?market=${market}`)),
     ]).then(([pos, log]: any[]) => {
       setPositions(pos?.data || []);
-      setTradeLog((log?.data || []).reverse());
+      setTradeLog((log?.data || []).reverse().map((r: any) => ({
+        ...r,
+        _memo: [r.reason, r.memo].filter((v) => v && v !== "nan" && v.trim()).join(" — ") || "",
+      })));
       setLoading(false); // 여기서 로딩 해제 → 화면 즉시 표시
 
       // 2단계: 현재가 비동기
