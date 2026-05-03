@@ -44,6 +44,17 @@ def health_check():
     return {"status": "ok"}
 
 
+# ── 인증 ──────────────────────────────────────
+from backend.auth import get_current_user, CurrentUser
+from fastapi import Depends
+
+
+@app.get("/api/auth/me")
+async def auth_me(user: CurrentUser = Depends(get_current_user)):
+    """로그인 사용자 정보 반환"""
+    return {"id": user.id, "email": user.email, "role": user.role}
+
+
 # ── 종목 검색 (종목명/코드 자동완성) ──────────────────
 _stock_cache = {"data": None}
 

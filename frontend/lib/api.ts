@@ -1,10 +1,27 @@
+import { supabase } from "./supabase";
+
 function getApiBase(): string {
-  if (typeof window === "undefined") return "/api";
   return "/api";
 }
 
-export async function fetchApi<T>(path: string): Promise<T> {
-  const res = await fetch(`${getApiBase()}${path}`);
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.access_token) {
+    return { Authorization: `Bearer ${session.access_token}` };
+  }
+  return {};
+}
+
+export async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${getApiBase()}${path}`, {
+    ...options,
+    headers: { ...headers, ...(options?.headers || {}) },
+  });
+  if (res.status === 401) {
+    window.location.href = "/login";
+    throw new Error("Unauthorized");
+  }
   if (!res.ok) {
     const detail = await res.text();
     throw new Error(`API error ${res.status}: ${detail}`);

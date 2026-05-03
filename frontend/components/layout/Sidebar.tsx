@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import { fetchApi } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 
 const NAV_ITEMS = [
   { href: "/", label: "Main", icon: "🏠" },
@@ -20,6 +21,21 @@ interface StockItem {
   code: string;
   name: string;
   market: string;
+}
+
+function UserInfo() {
+  const { user, role, signOut } = useAuth();
+  if (!user) return null;
+  return (
+    <div className="p-3 border-t border-gray-800">
+      <p className="text-xs text-gray-400 truncate">{user.email}</p>
+      {role === "master" && <p className="text-[10px] text-blue-400 mt-0.5">Master</p>}
+      <button onClick={signOut}
+        className="mt-2 w-full py-1 rounded text-xs bg-[#1f2937] text-gray-400 hover:text-white hover:bg-[#2d333b]">
+        로그아웃
+      </button>
+    </div>
+  );
 }
 
 export default function Sidebar() {
@@ -125,6 +141,9 @@ export default function Sidebar() {
           );
         })}
       </nav>
+
+      {/* 사용자 정보 + 로그아웃 */}
+      <UserInfo />
     </>
   );
 
