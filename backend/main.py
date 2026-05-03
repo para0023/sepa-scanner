@@ -50,6 +50,15 @@ _stock_cache = {"data": None}
 def _load_stock_list():
     if _stock_cache["data"] is not None:
         return _stock_cache["data"]
+    import json
+    cache_path = PROJECT_ROOT / "cache" / "stock_list.json"
+    if cache_path.exists():
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                _stock_cache["data"] = json.load(f)
+            return _stock_cache["data"]
+        except Exception:
+            pass
     import FinanceDataReader as fdr
     items = []
     try:
