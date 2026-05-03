@@ -1,4 +1,6 @@
 function getApiBase(): string {
+  const env = process.env.NEXT_PUBLIC_API_URL;
+  if (env) return env;
   if (typeof window === "undefined") return "http://localhost:8000/api";
   return `http://${window.location.hostname}:8000/api`;
 }

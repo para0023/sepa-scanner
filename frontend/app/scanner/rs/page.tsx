@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { fetchApi } from "@/lib/api";
 import DataTable from "@/components/tables/DataTable";
 import LoadingSpinner from "@/components/layout/LoadingSpinner";
@@ -26,9 +27,24 @@ interface ScanResult {
 }
 
 export default function RSScannerPage() {
-  const [region, setRegion] = useState<"KR" | "US">("KR");
-  const [market, setMarket] = useState("KOSPI");
-  const [period, setPeriod] = useState(60);
+  return (
+    <Suspense fallback={<LoadingSpinner text="로딩 중" />}>
+      <RSScannerInner />
+    </Suspense>
+  );
+}
+
+function RSScannerInner() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  const initRegion = (searchParams.get("region") === "US" ? "US" : "KR") as "KR" | "US";
+  const initMarket = searchParams.get("market") || (initRegion === "KR" ? "KOSPI" : "NASDAQ");
+  const initPeriod = Number(searchParams.get("period")) || 60;
+
+  const [region, setRegionRaw] = useState<"KR" | "US">(initRegion);
+  const [market, setMarket] = useState(initMarket);
+  const [period, setPeriod] = useState(initPeriod);
   const [result, setResult] = useState<ScanResult | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -39,9 +55,19 @@ export default function RSScannerPage() {
 
   const markets = region === "KR" ? MARKETS_KR : MARKETS_US;
 
+  const setRegion = (r: "KR" | "US") => {
+    setRegionRaw(r);
+    setMarket(r === "KR" ? MARKETS_KR[0] : MARKETS_US[0]);
+  };
+
+  // URL 쿼리 파라미터 동기화
   useEffect(() => {
-    setMarket(markets[0]);
-  }, [region]);
+    const params = new URLSearchParams();
+    params.set("region", region);
+    params.set("market", market);
+    params.set("period", String(period));
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }, [region, market, period]);
 
   useEffect(() => {
     setLoading(true);

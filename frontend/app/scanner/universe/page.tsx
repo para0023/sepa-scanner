@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { fetchApi } from "@/lib/api";
 import DataTable from "@/components/tables/DataTable";
 import LoadingSpinner from "@/components/layout/LoadingSpinner";
@@ -32,8 +33,29 @@ const SORT_OPTIONS = [
 ];
 
 export default function UniversePage() {
-  const [tab, setTab] = useState<"listing" | "high">("listing");
-  const [market, setMarket] = useState("KOSPI");
+  return (
+    <Suspense fallback={<div className="text-gray-500 text-sm py-4">로딩 중...</div>}>
+      <UniverseInner />
+    </Suspense>
+  );
+}
+
+function UniverseInner() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  const initTab = (searchParams.get("tab") === "high" ? "high" : "listing") as "listing" | "high";
+  const initMarket = searchParams.get("market") || "KOSPI";
+
+  const [tab, setTab] = useState<"listing" | "high">(initTab);
+  const [market, setMarket] = useState(initMarket);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    params.set("tab", tab);
+    params.set("market", market);
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }, [tab, market]);
 
   // ── 시장순위 상태 ──
   const [sortBy, setSortBy] = useState("marcap");

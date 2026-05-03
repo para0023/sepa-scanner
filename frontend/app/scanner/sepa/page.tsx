@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { fetchSSE } from "@/lib/api";
 import DataTable from "@/components/tables/DataTable";
 import LoadingSpinner from "@/components/layout/LoadingSpinner";
@@ -35,7 +36,24 @@ interface MarketState {
 }
 
 export default function SEPAScannerPage() {
-  const [region, setRegion] = useState<"KR" | "US">("KR");
+  return (
+    <Suspense fallback={<LoadingSpinner text="로딩 중" />}>
+      <SEPAScannerInner />
+    </Suspense>
+  );
+}
+
+function SEPAScannerInner() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  const initRegion = (searchParams.get("region") === "US" ? "US" : "KR") as "KR" | "US";
+  const [region, setRegion] = useState<"KR" | "US">(initRegion);
+
+  // URL 쿼리 파라미터 동기화
+  useEffect(() => {
+    router.replace(`?region=${region}`, { scroll: false });
+  }, [region]);
   const [marketState, setMarketState] = useState<Record<string, MarketState>>({});
 
   const marketGroups = region === "KR"
