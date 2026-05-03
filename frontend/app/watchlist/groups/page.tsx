@@ -9,7 +9,7 @@ import dynamic from "next/dynamic";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+const API = "/api";
 
 const RS_COLUMNS = [
   { key: "그룹명", label: "그룹명", align: "left" as const },

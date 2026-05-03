@@ -4,8 +4,7 @@ import { useEffect, useState } from "react";
 import { fetchApi } from "@/lib/api";
 
 function getApiBase() {
-  if (typeof window === "undefined") return "http://localhost:8000/api";
-  return `http://${window.location.hostname}:8000/api`;
+  return "/api";
 }
 
 function fmtKR(n: number) { return n.toLocaleString("ko-KR", { maximumFractionDigits: 0 }); }

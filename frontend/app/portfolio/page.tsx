@@ -72,7 +72,7 @@ function KpiCard({ label, value, sub, color }: { label: string; value: string; s
 
 function WeeklyReviewTab({ market, currency }: { market: "KR" | "US"; currency: string }) {
   const fmt = (n: number) => _fmt(n, currency);
-  const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+  const API = "/api";
   const [weeks, setWeeks] = useState<string[]>([]);
   const [selectedWeek, setSelectedWeek] = useState("");
   const [review, setReview] = useState<any>(null);
@@ -231,7 +231,7 @@ function WeeklyReviewTab({ market, currency }: { market: "KR" | "US"; currency: 
 
 function BalanceTab({ market, currency, onReload }: { market: "KR" | "US"; currency: string; onReload: () => void }) {
   const fmt = (n: number) => _fmt(n, currency);
-  const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+  const API = "/api";
   const [capital, setCapital] = useState(0);
   const [flows, setFlows] = useState<any[]>([]);
   const [sysBalance, setSysBalance] = useState<any>(null);
@@ -416,7 +416,7 @@ function JournalTab() {
   const [viewDate, setViewDate] = useState("");
   const [viewData, setViewData] = useState<any>(null);
 
-  const API = typeof window !== "undefined" ? `http://${window.location.hostname}:8000/api` : "http://localhost:8000/api";
+  const API = "/api";
 
   // 작성 모드: 보유종목 + 기존 일지 로드
   const [jLoading, setJLoading] = useState(false);
@@ -1171,7 +1171,7 @@ export default function PortfolioPage() {
                     setBuyForm({ ...buyForm, name: e.target.value });
                     const q = e.target.value.trim();
                     if (q.length >= 1) {
-                      fetch(`http://${typeof window !== "undefined" ? window.location.hostname : "localhost"}:8000/api/stocks/search?q=${encodeURIComponent(q)}&limit=8`)
+                      fetch(`/api/stocks/search?q=${encodeURIComponent(q)}&limit=8`)
                         .then((r) => r.json())
                         .then((items) => setBuySuggestions(items || []))
                         .catch(() => setBuySuggestions([]));
@@ -1185,7 +1185,7 @@ export default function PortfolioPage() {
                           setBuyForm({ ...buyForm, ticker: item.code, name: item.name });
                           setBuySuggestions([]);
                           setReentryWarning(null);
-                          fetch(`http://${typeof window !== "undefined" ? window.location.hostname : "localhost"}:8000/api/portfolio/reentry-check/${item.code}?market=${market}`)
+                          fetch(`/api/portfolio/reentry-check/${item.code}?market=${market}`)
                             .then((r) => r.json()).then(setReentryWarning).catch(() => {});
                         }}
                           className="w-full text-left px-3 py-1.5 hover:bg-[#2d333b] text-sm">
@@ -1224,7 +1224,7 @@ export default function PortfolioPage() {
                     stop_loss: Number(buyForm.stop_loss), entry_reason: buyForm.entry_reason,
                     memo: buyForm.memo, take_profit: Number(buyForm.take_profit) || 0,
                   };
-                  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"}/portfolio/buy?market=${market}`, {
+                  const res = await fetch(`${"/api"}/portfolio/buy?market=${market}`, {
                     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
                   });
                   if (res.ok) { setFormMsg("매수 등록 완료"); setShowBuyForm(false); setBuyForm({ ticker: "", name: "", date: new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10), price: "", quantity: "", stop_loss: "", entry_reason: "PB20", memo: "", take_profit: "" }); setReentryWarning(null); setBuySuggestions([]); loadAll(); }
@@ -1268,7 +1268,7 @@ export default function PortfolioPage() {
                     position_id: sellForm.position_id, date: sellForm.date,
                     price: Number(sellForm.price), quantity: Number(sellForm.quantity), reason: sellForm.reason,
                   };
-                  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"}/portfolio/sell?market=${market}`, {
+                  const res = await fetch(`${"/api"}/portfolio/sell?market=${market}`, {
                     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
                   });
                   if (res.ok) { setFormMsg("매도 등록 완료"); setShowSellForm(false); setSellForm({ position_id: "", date: new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10), price: "", quantity: "", reason: "" }); loadAll(); }
@@ -1303,7 +1303,7 @@ export default function PortfolioPage() {
               <button onClick={async () => {
                 try {
                   const body = { position_id: stopForm.position_id, date: stopForm.date, price: Number(stopForm.price), note: stopForm.note };
-                  const res = await fetch(`http://${typeof window !== "undefined" ? window.location.hostname : "localhost"}:8000/api/portfolio/stop-loss/update?market=${market}`, {
+                  const res = await fetch(`/api/portfolio/stop-loss/update?market=${market}`, {
                     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
                   });
                   if (res.ok) { setFormMsg("손절가 수정 완료"); setShowStopForm(false); setStopForm({ position_id: "", date: new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10), price: "", note: "" }); loadAll(); }
