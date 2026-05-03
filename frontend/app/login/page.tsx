@@ -52,10 +52,10 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0d1117] flex items-center justify-center">
-      <div className="w-full max-w-sm p-6">
-        <h1 className="text-2xl font-bold text-white text-center mb-1">SEPA Scanner</h1>
-        <p className="text-xs text-gray-500 text-center mb-6">v2.0 — React</p>
+    <div className="fixed inset-0 bg-[#0d1117] flex items-center justify-center z-50">
+      <div className="w-full max-w-md p-8">
+        <h1 className="text-3xl font-bold text-white text-center mb-1">SEPA Scanner</h1>
+        <p className="text-sm text-gray-500 text-center mb-8">v2.0 — React</p>
 
         <div className="flex gap-1 mb-4">
           <button onClick={() => { setMode("login"); setError(""); }}
